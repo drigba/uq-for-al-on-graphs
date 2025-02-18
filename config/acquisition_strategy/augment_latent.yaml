@@ -1,0 +1,5 @@
+defaults:
+  - base_augment_latent
+
+name: augment_latent
+higher_is_better: false 

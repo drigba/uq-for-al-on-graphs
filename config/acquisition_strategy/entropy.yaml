@@ -1,0 +1,7 @@
+defaults:
+  - acquire_by_prediction_attribute
+
+attribute: ENTROPY
+higher_is_better: true # sample nodes with low score, i.e. high uncertainty
+propagated: true
+name: entropy

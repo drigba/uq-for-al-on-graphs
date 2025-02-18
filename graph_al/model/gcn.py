@@ -23,15 +23,16 @@ class GCN(BaseModelMonteCarloDropout):
         in_dim = dataset.num_input_features
         for out_dim in list(config.hidden_dims) + [dataset.data.num_classes]:
             self.layers.append(tgnn.GCNConv(in_dim, out_dim, improved=config.improved,
-                                            cached=config.cached, add_self_loops=config.add_self_loops))
+                                            cached=False, add_self_loops=config.add_self_loops))
             in_dim = out_dim
+        
     
     def reset_cache(self):
         for layer in self.layers:
             layer._cached_edge_index = None
             layer._cached_adj_t = None
 
-    def reset_parameters(self, generator: torch.Generator):
+    def reset_parameters(self, generator = None):
         for layer in self.layers:
             conv: tgnn.GCNConv = layer # type: ignore
             conv.reset_parameters()
@@ -39,24 +40,34 @@ class GCN(BaseModelMonteCarloDropout):
     @jaxtyped(typechecker=typechecked)
     def forward_impl(self, x: Float[Tensor, 'num_nodes num_input_features'],
                      edge_index: Int[Tensor, '2 num_edges'] | None,
-                     edge_weight: Int[Tensor, 'num_edges 1'] | None = None,
-                     acquisition: bool=False) -> Tuple[
+                     edge_weight: Float[Tensor, 'num_edges 1'] | None = None,
+                     acquisition: bool=False,
+                     last_n_layer: int = None) -> Tuple[
                          Float[Tensor, 'num_nodes embedding_dim'] | None,
                          Float[Tensor, 'num_nodes num_classes']]:
+        # new_layers = nn.ModuleList()
+        # for l in self.layers:
+        #     new_layers.append(tgnn.GCNConv(l.in_channels , l.out_channels, improved=l.improved, cached=l.cached, add_self_loops=l.add_self_loops))
+        # self.layers = new_layers.cuda()
+        # for param in self.parameters():
+        #     param.requires_grad = False
         embedding = None
-        for layer_idx, layer in enumerate(self.layers):
-            
+        if last_n_layer is None:
+            last_n_layer = len(self.layers)
+        for layer_idx, layer in enumerate(self.layers[-last_n_layer:]):
+            _layer_idx = layer_idx + len(self.layers) - last_n_layer
             if edge_index is None:
                 x = layer.lin(x) # type: ignore
-            else:
+            else:   
                 x = layer(x, edge_index, edge_weight)
-            if acquisition and layer_idx == len(self.layers) - 2: # only return an embedding when doing acquisition
+            if acquisition and _layer_idx == len(self.layers) - 2: # only return an embedding when doing acquisition
                 embedding = x
-            if layer_idx != len(self.layers) - 1:
+            if _layer_idx != len(self.layers) - 1:
                 x = F.relu(x, inplace=self.inplace)
                 if self.dropout:
                     x = F.dropout(x, p=self.dropout, inplace=self.inplace and not acquisition, 
                                   training=self.training or self.dropout_at_eval)
+        
         return embedding, x
 
     @property
@@ -76,6 +87,7 @@ class GCN(BaseModelMonteCarloDropout):
             embeddings_unpropagated, logits_unpropagated = None, None
         return embeddings, embeddings_unpropagated, logits, logits_unpropagated
     
+    # IDE KÉNE TTA-T BETENNI
     @typechecked
     def predict_multiple_collate(self, batch: Data, num_samples: int, acquisition: bool = False) -> Prediction:
         """ Predicts multiple samples at once by collating into one large batch """

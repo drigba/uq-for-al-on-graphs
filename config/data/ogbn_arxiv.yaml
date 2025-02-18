@@ -2,7 +2,7 @@ defaults:
   - base_npz
 
 name: ogbn_arxiv
-path: /nfs/staff-hdd/fuchsgru/graph-ssl-data-raw/ogbn-arxiv.npz
+path: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-ssl-data-raw/ogbn-arxiv.npz
 preprocessing: NONE
 use_public_split: true
 num_classes: 40

@@ -8,7 +8,7 @@ DTYPE_FLOAT = float
 DTYPE_INT = int
 
 ctypedef np.float_t DTYPE_FLOAT_t
-ctypedef np.int_t DTYPE_INT_t
+ctypedef np.int32_t DTYPE_INT_t
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function

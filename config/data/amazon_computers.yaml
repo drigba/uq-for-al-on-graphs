@@ -1,11 +1,11 @@
 defaults:
 #  - base_npz
   - base_torch_geometric
-root: /nfs/staff-hdd/fuchsgru/graph-al/data
+root: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-al/data
 torch_geometric_dataset: AMAZON_COMPUTERS
 
 name: amazon_computers
-#path: /nfs/staff-hdd/fuchsgru/graph-ssl-data-raw/amazon_electronics_photo.npz
+#path: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-ssl-data-raw/amazon_electronics_photo.npz
 #preprocessing: NONE
 num_classes: 10
 

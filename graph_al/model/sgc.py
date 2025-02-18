@@ -36,7 +36,8 @@ class SGC(BaseModel):
     def __init__(self, config: SGCConfig, dataset: Dataset, generator: torch.Generator):
         super().__init__(config, dataset)
         self.inverse_regularization_strength = config.inverse_regularization_strength
-        self.cached = config.cached
+        # self.cached = config.cached
+        self.cached = False
         self.balanced = config.balanced
         self.normalize = True
         self.add_self_loops = config.add_self_loops
@@ -65,6 +66,7 @@ class SGC(BaseModel):
             probs[:, self._frozen_prediction] = 1.0
             probs, probs_unpropagated = probs, probs
             logits, logits_unpropagated = probs, probs_unpropagated # a bit arbitrary...
+            x = probs
         else:
             if self.logistic_regression is None:
                 raise RuntimeError(f'No regression model was fitted for SGC')
@@ -84,16 +86,18 @@ class SGC(BaseModel):
                           logits=torch.from_numpy(logits[None, ...]),
                           logits_unpropagated=torch.from_numpy(logits_unpropagated[None, ...]),
                           # they are not really embeddings, this is a bit iffy...
-                          embeddings=torch.from_numpy(logits[None, ...]),
+                          embeddings=x,
                           embeddings_unpropagated=torch.from_numpy(logits_unpropagated[None, ...])
                           )
 
     @torch.no_grad()
     @jaxtyped(typechecker=typechecked)
-    def get_diffused_node_features(self, batch: Data) -> Float[torch.Tensor, 'num_nodes num_features']:
+    def get_diffused_node_features(self, batch: Data, cache: bool = True) -> Float[torch.Tensor, 'num_nodes num_features']:
         """ Gets the diffused node features. """
+        cache = False
+        
         return batch.get_diffused_nodes_features(self.k, normalize=self.normalize, improved=self.improved,
-                    add_self_loops=self.add_self_loops, cache=True)
+                    add_self_loops=self.add_self_loops, cache=cache)
 
     def freeze_predictions(self, class_idx: int):
         self._frozen_prediction = class_idx

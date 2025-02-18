@@ -15,9 +15,11 @@ initial_acquisition_strategy:
 acquisition_strategy:
   num_steps: ${eval:${data.num_classes} * 5 - \(${initial_acquisition_strategy.num_steps} * ${initial_acquisition_strategy.num_to_acquire_per_step}\)}
   num_to_acquire_per_step: 1
+  tta: {}
+  adaptation: {}
 
 # Where to write seml, hydra, wandb logs etc.
-#output_base_dir: /nfs/staff-hdd/fuchsgru/graph-al/runs/${wandb.group}/${wandb.name}
+#output_base_dir: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-al/runs/${wandb.group}/${wandb.name}
 output_base_dir: ./output/runs/${wandb.group}/${wandb.name}
 
 seed: ~

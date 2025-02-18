@@ -1,0 +1,14 @@
+**/__pycache__/
+
+embeddings/
+tta/
+output/
+logs/
+graph_al.egg-info/
+
+graph_al/utils/_sbm.cpython-311-x86_64-linux-gnu.so
+*.pt
+*.csv
+*.npz
+*.ipynb
+*.c

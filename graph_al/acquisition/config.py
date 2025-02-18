@@ -5,7 +5,8 @@ from graph_al.evaluation.config import MetricTemplate
 from graph_al.model.prediction import PredictionAttribute
 from graph_al.acquisition.enum import *
 from graph_al.evaluation.enum import DatasetSplit, MetricName
-
+from graph_al.acquisition.config_tta import TTAConfig
+from graph_al.test_time_adaptation.config import  AdaptationConfig
 from typing import List
 
 
@@ -20,6 +21,16 @@ class AcquisitionStrategyConfig:
     requires_model_prediction: bool = True
     balanced: bool = False # whether to select randomly but keep the class distribution balanced
     name: str | None = None
+    # tta: bool | None = False # whether to use test-time augmentation for the acquisition
+    # tta_strat_node: str | None = "noise" # which node augmentation strategy to use
+    # tta_strat_edge: str | None = "mask" # which edge augmentation strategy to use
+    # tta_norm: bool | None = True
+    scale: float | None = 1.0
+    # tta_retrain_model: bool | None = False
+    # num_tta: int = 100 # number of tta samples
+    # tta_filter: bool = False # whether to filter the tta samples
+    tta: TTAConfig | None = None
+    adaptation: AdaptationConfig | None = None
     
 @dataclass
 class AcquisitionStrategyByAttributeConfig(AcquisitionStrategyConfig):
@@ -141,6 +152,44 @@ class AcquisitionStrategyApproximateUncertaintyConfig(AcquisitionStrategyByAttri
     features_only: bool = False # if True, only use the features for the uncertainty estimation
 
 @dataclass
+class AcquisitionStrategyLeaveOutConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.LEAVE_OUT
+    higher_is_better: bool = True 
+    
+@dataclass
+class AcquisitionStrategyAugmentationRiskConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.AUGMENTATION_RISK
+    higher_is_better: bool = False 
+    
+@dataclass
+class AcquisitionStrategyAdaptationRiskConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.ADAPTATION_RISK
+    higher_is_better: bool = False
+    lr_feat: float = 0.0005 # learning rate for feature adaptation
+    lr_adj: float = 0.1 # learning rate for structure adaptation
+    epochs: int = 20 # number of epochs for feature adaptation
+    seed: int = 0 # seed for reproducibility
+    strategy: str = AdaptationStrategy.DROPEDGE # strategy for augmenting the graph
+    margin: float = -1 # margin for the loss function
+    ratio: float = 0.1 # budget for changing the graph structure
+    existing_space: bool = True # whether to enable removing edges from the graph
+    loop_adj: int = 1 # number of loops for optimizing structure
+    loop_feat: int = 4 # number of loops for optimizing features
+    debug:int = 0 # debug flag
+    
+@dataclass
+class AcquisitionStrategyLatentDistanceConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.LATENT_DISTANCE
+    higher_is_better: bool = False 
+    
+@dataclass
+class AcquisitionStrategyAugmentLatentConfig(AcquisitionStrategyConfig):
+    """ Configuration for acquiring based on the latent space of the model. """
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.AUGMENT_LATENT
+    num_tta: int = 100
+    higher_is_better: bool = False
+
+@dataclass
 class AcquisitionStrategyAGELikeConfig(AcquisitionStrategyConfig):
     """ Configuration for acquiring based on AGE, i.e. centrality, entropy and representativeness"""
     num_clusters: int = 6
@@ -215,6 +264,11 @@ cs.store(name="base_uncertainty_difference", node=AcquisitionStrategyUncertainty
 cs.store(name="base_approximate_uncertainty", node=AcquisitionStrategyApproximateUncertaintyConfig, group='acquisition_strategy')
 cs.store(name="base_galaxy", node=AcquisitionStrategyGalaxyConfig, group='acquisition_strategy')
 cs.store(name="base_badge", node=AcquisitionStrategyBadgeConfig, group='acquisition_strategy')
+cs.store(name="base_leave_out", node=AcquisitionStrategyLeaveOutConfig, group='acquisition_strategy')
+cs.store(name="base_augmentation_risk", node=AcquisitionStrategyAugmentationRiskConfig, group='acquisition_strategy')
+cs.store(name="base_augment_latent", node=AcquisitionStrategyAugmentLatentConfig, group='acquisition_strategy')
+cs.store(name="base_latent_distance", node=AcquisitionStrategyLatentDistanceConfig, group='acquisition_strategy')
+cs.store(name="base_adaptation_risk", node=AcquisitionStrategyAdaptationRiskConfig, group='acquisition_strategy')
 
 # register to all initial acquisition strategy groups as well
 cs.store(name="base_config", node=AcquisitionStrategyConfig, group='initial_acquisition_strategy')

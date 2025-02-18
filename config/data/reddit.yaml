@@ -1,7 +1,7 @@
 defaults:
   - base_torch_geometric
 
-root: /nfs/staff-hdd/fuchsgru/graph-al/data
+root: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-al/data
 torch_geometric_dataset: REDDIT
 name: reddit
 num_classes: 41

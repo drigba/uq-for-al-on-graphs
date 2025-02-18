@@ -220,10 +220,11 @@ class Data(TorchGeometricData):
             edge_weight = torch.ones(edge_index.size(1), device=edge_index.device)
 
         src, dst = edge_index
-        for _ in range(k):
-            # Perform message passing
-            messages = x[src] * edge_weight[:, None] # type: ignore
-            x = torch_scatter.scatter_add(messages, dst, dim=0, dim_size=x.size(0))
+        with torch.enable_grad():
+            for _ in range(k):
+                # Perform message passing
+                messages = x[src] * edge_weight[:, None] # type: ignore
+                x = torch_scatter.scatter_add(messages, dst, dim=0, dim_size=x.size(0))
         if cache:
             setattr(self, key, x)
         return x

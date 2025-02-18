@@ -11,6 +11,11 @@ from graph_al.acquisition.config import (
     AcquisitionStrategyApproximateUncertaintyConfig,
     AcquisitionStrategyGalaxyConfig,
     AcquisitionStrategyBadgeConfig,
+    AcquisitionStrategyLeaveOutConfig,
+    AcquisitionStrategyAugmentationRiskConfig,
+    AcquisitionStrategyAugmentLatentConfig,
+    AcquisitionStrategyLatentDistanceConfig,
+    AcquisitionStrategyAdaptationRiskConfig
 )
 from graph_al.acquisition.prediction_attribute import AcquisitionStrategyByPredictionAttribute
 from graph_al.acquisition.random import AcquisitionStrategyRandom
@@ -31,6 +36,11 @@ from graph_al.acquisition.badge import AcquisitionStrategyBadge
 from graph_al.model.base import BaseModel
 from graph_al.data.base import Dataset
 from graph_al.acquisition.galaxy import AcquisitionStrategyGalaxy
+from graph_al.acquisition.leave_out import AcquisitionStrategyLeaveOut
+from graph_al.acquisition.augmentation_risk import AcquisitionStrategyAugmentationRisk
+from graph_al.acquisition.augment_latent import AcquisitionStrategyAugmentLatent
+from graph_al.acquisition.latent_distance import AcquisitionStrategyLatentDistance
+from graph_al.acquisition.adaptation_risk import AcquisitionStrategyAdaptationRisk
 
 import torch
 
@@ -78,5 +88,15 @@ def get_acquisition_strategy(config: AcquisitionStrategyConfig, model: BaseModel
             return AcquisitionStrategyGalaxy(config) # type: ignore
         case AcquisitionStrategyBadgeConfig.type_:
             return AcquisitionStrategyBadge(config) # type: ignore
+        case AcquisitionStrategyLeaveOutConfig.type_:
+            return AcquisitionStrategyLeaveOut(config) # type: ignore
+        case AcquisitionStrategyAugmentationRiskConfig.type_:
+            return AcquisitionStrategyAugmentationRisk(config) # type: ignore
+        case AcquisitionStrategyAugmentLatentConfig.type_:
+            return AcquisitionStrategyAugmentLatent(config) # type: ignore
+        case AcquisitionStrategyLatentDistanceConfig.type_:
+            return AcquisitionStrategyLatentDistance(config) # type: ignore
+        case AcquisitionStrategyAdaptationRiskConfig.type_:
+            return AcquisitionStrategyAdaptationRisk(config) # type: ignore
         case _:
             raise ValueError(f'Unsupported acquisition strategy {config.type_}')
