@@ -3,12 +3,16 @@
 embeddings/
 tta/
 output/
+output2/
 logs/
 graph_al.egg-info/
-
+wandb/
 graph_al/utils/_sbm.cpython-311-x86_64-linux-gnu.so
 *.pt
 *.csv
 *.npz
 *.ipynb
 *.c
+*.txt
+*.log
+util_maintenance.py

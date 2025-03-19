@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
-from graph_al.acquisition.enum import *
+from graph_al.acquisition.enum import AdaptationStrategy, AdaptationMode, AdaptationIntegration
 
 @dataclass
 class AdaptationConfig:
-
     lr_feat: float = 0.0005 # learning rate for feature adaptation
     lr_adj: float = 0.1 # learning rate for structure adaptation
     epochs: int = 20 # number of epochs for feature adaptation
@@ -15,3 +14,5 @@ class AdaptationConfig:
     loop_adj: int = 1 # number of loops for optimizing structure
     loop_feat: int = 4 # number of loops for optimizing features
     debug:int = 0 # debug flag
+    mode: str = AdaptationMode.FEATURE # mode for adaptation
+    integration: str = AdaptationIntegration.QUERY # integration for adaptation

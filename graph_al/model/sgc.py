@@ -36,8 +36,7 @@ class SGC(BaseModel):
     def __init__(self, config: SGCConfig, dataset: Dataset, generator: torch.Generator):
         super().__init__(config, dataset)
         self.inverse_regularization_strength = config.inverse_regularization_strength
-        # self.cached = config.cached
-        self.cached = False
+        self.cached = config.cached
         self.balanced = config.balanced
         self.normalize = True
         self.add_self_loops = config.add_self_loops
@@ -71,7 +70,7 @@ class SGC(BaseModel):
             if self.logistic_regression is None:
                 raise RuntimeError(f'No regression model was fitted for SGC')
             try:
-                x = self.get_diffused_node_features(batch)
+                x = self.get_diffused_node_features(batch, cache=self.cached)
                 probs = self.logistic_regression.predict_proba(x)
                 probs_unpropagated = self.logistic_regression.predict_proba(batch.x.cpu().numpy())
                 logits = self.logistic_regression.decision_function(x)
@@ -94,7 +93,6 @@ class SGC(BaseModel):
     @jaxtyped(typechecker=typechecked)
     def get_diffused_node_features(self, batch: Data, cache: bool = True) -> Float[torch.Tensor, 'num_nodes num_features']:
         """ Gets the diffused node features. """
-        cache = False
         
         return batch.get_diffused_nodes_features(self.k, normalize=self.normalize, improved=self.improved,
                     add_self_loops=self.add_self_loops, cache=cache)

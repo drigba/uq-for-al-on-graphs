@@ -59,6 +59,10 @@ class EdgeAgent(FeatAgent):
         self.edge_index = data.edge_index
         self.edge_weight = torch.ones(self.edge_index.shape[1]).to(self.device)
         self.feat = feat
+        self.data = data
+        
+        for param in model.parameters():
+            param.requires_grad = False
 
         n_perturbations = int(config.ratio * self.edge_index.shape[1] //2)
         print('n_perturbations:', n_perturbations)
@@ -66,24 +70,22 @@ class EdgeAgent(FeatAgent):
 
         self.perturbed_edge_weight.requires_grad = True
         self.optimizer_adj = torch.optim.Adam([self.perturbed_edge_weight], lr=config.lr_adj)
-        for it in tqdm(range(config.epochs)):
+        for it in range(config.epochs):
             self.perturbed_edge_weight.requires_grad = True
 
             edge_index, edge_weight  = self.get_modified_adj()
-
+  
             if torch.cuda.is_available() and self.do_synchronize:
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-            data_tmp = deepcopy(data)
-            data_tmp.edge_index, data_tmp.edge_attr = edge_index, edge_weight
-            loss = self.test_time_loss(data_tmp)
+            loss = self.test_time_loss(feat,edge_index, edge_weight)
             gradient = grad_with_checkpoint(loss, self.perturbed_edge_weight)[0]
 
             if torch.cuda.is_available() and self.do_synchronize:
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-            if it == 0:
-                print(f'Epoch {it}: {loss}')
+            # if it == 0:
+            #     print(f'Epoch {it}: {loss}')
 
             with torch.no_grad():
                 self.update_edge_weights(n_perturbations, it, gradient)
@@ -94,42 +96,39 @@ class EdgeAgent(FeatAgent):
                 self.perturbed_edge_weight.requires_grad = True
                 self.optimizer_adj = torch.optim.Adam([self.perturbed_edge_weight], lr=config.lr_adj)
 
-        print(f'Epoch {it}: {loss}')
+        # print(f'Epoch {it}: {loss}')
         edge_index, edge_weight = self.sample_final_edges(n_perturbations, data)
-        data_tmp = deepcopy(data)
-        data_tmp.x, data_tmp.edge_index, data_tmp.edge_attr = feat, edge_index, edge_weight
-        loss = self.test_time_loss(data_tmp)
-        print('final loss:', loss.item())
+        loss = self.test_time_loss(feat,edge_index, edge_weight)
 
-        output = model.predict(data_tmp, acquisition=True)
-        print('Test:')
-        return output, data_tmp
+        for param in model.parameters():
+            param.requires_grad = True
+  
+        return edge_index,edge_weight, loss
 
 
-    def augment(self,data_tmp, strategy=AdaptationStrategy.DROPEDGE, p=0.5 ):
+    def augment(self,feat, edge_index=None, edge_weight=None, strategy='dropedge', p=0.5):
         model = self.model
-        feat = self.feat
+        x = feat
         if strategy == AdaptationStrategy.SHUFFLE:
-            idx = np.random.permutation(feat.shape[0])
-            shuf_fts = feat[idx, :]
-            #TODO DONE
-            data_tmp.x = shuf_fts
+            idx = np.random.permutation(x.shape[0])
+            shuf_fts = x[idx, :]
+            x = shuf_fts
         if strategy == AdaptationStrategy.DROPEDGE:
-            edge_index, edge_weight = dropout_adj(data_tmp.edge_index, data_tmp.edge_attr, p=p)
-            #TODO DONE
-            data_tmp.edge_index, data_tmp.edge_attr = edge_index, edge_weight
-
+            edge_index, edge_weight = dropout_adj(edge_index, edge_weight, p=p)
+        
         if strategy == AdaptationStrategy.DROPFEAT:
-            feat = F.dropout(data_tmp.x, p=p) + self.delta_feat
-            #TODO DONE
-            data_tmp.x = feat
+            x = F.dropout(x, p=p)
         if strategy == AdaptationStrategy.FEATNOISE:
             mean, std = 0, p
-            noise = torch.randn(feat.size()) * std + mean
-            feat = feat + noise.to(feat.device)
-            #TODO DONE
-            data_tmp.x = feat
-        output = model.predict(data_tmp, acquisition=True)
+            noise = torch.randn(x.size()) * std + mean
+            x = x + noise.to(x.device)
+        
+        data_tmp = deepcopy(self.data)
+        data_tmp.x = x
+        data_tmp.edge_index = edge_index
+        if edge_weight is not None:
+            data_tmp.edge_attr = edge_weight.unsqueeze(-1)
+        output = model.predict(data_tmp, acquisition=True).embeddings[0]
         return output
 
     def sample_random_block(self, n_perturbations):
@@ -170,11 +169,9 @@ class EdgeAgent(FeatAgent):
             self.perturbed_edge_weight = sampled_edges
 
             edge_index, edge_weight = self.get_modified_adj()
-            data_tmp = deepcopy(data)
-            data_tmp.edge_index, data_tmp.edge_attr = edge_index, edge_weight
             with torch.no_grad():
                 # output = self.model.forward(feat, edge_index, edge_weight)
-                loss = self.test_time_loss(self.model,data_tmp, mode='eval')
+                loss = self.test_time_loss(feat,edge_index,edge_weight, mode='eval')
             # Save best sample
             if best_loss > loss:
                 best_loss = loss

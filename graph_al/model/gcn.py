@@ -23,7 +23,7 @@ class GCN(BaseModelMonteCarloDropout):
         in_dim = dataset.num_input_features
         for out_dim in list(config.hidden_dims) + [dataset.data.num_classes]:
             self.layers.append(tgnn.GCNConv(in_dim, out_dim, improved=config.improved,
-                                            cached=False, add_self_loops=config.add_self_loops))
+                                            cached=config.cached, add_self_loops=config.add_self_loops))
             in_dim = out_dim
         
     
@@ -45,12 +45,7 @@ class GCN(BaseModelMonteCarloDropout):
                      last_n_layer: int = None) -> Tuple[
                          Float[Tensor, 'num_nodes embedding_dim'] | None,
                          Float[Tensor, 'num_nodes num_classes']]:
-        # new_layers = nn.ModuleList()
-        # for l in self.layers:
-        #     new_layers.append(tgnn.GCNConv(l.in_channels , l.out_channels, improved=l.improved, cached=l.cached, add_self_loops=l.add_self_loops))
-        # self.layers = new_layers.cuda()
-        # for param in self.parameters():
-        #     param.requires_grad = False
+
         embedding = None
         if last_n_layer is None:
             last_n_layer = len(self.layers)

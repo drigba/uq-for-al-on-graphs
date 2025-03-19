@@ -37,6 +37,7 @@ class FeatAgent:
         delta_feat = Parameter(torch.FloatTensor(nnodes, d).to(self.device))
         self.delta_feat = delta_feat
         delta_feat.data.fill_(1e-7)
+        # delta_feat.data.normal_(0, 1e-7)
         self.optimizer_feat = torch.optim.Adam([delta_feat], lr=config.lr_feat)
 
         model = self.model
@@ -50,11 +51,9 @@ class FeatAgent:
         # for it in tqdm(range(config.epochs)):
         for it in range(config.epochs):
             self.optimizer_feat.zero_grad()
-            
             loss = self.test_time_loss( feat, edge_index)
-
             loss.backward()
-            
+        
             # if it % 100 == 0:
             #     print(f'Epoch {it}: {loss}')
             self.optimizer_feat.step()
@@ -92,7 +91,7 @@ class FeatAgent:
             x = x * mask.view(-1, 1)
             edge_index, edge_weight = dropout_adj(edge_index, edge_weight, p=p)
         if strategy == AdaptationStrategy.DROPFEAT:
-            x = F.dropout(x, p=p) + self.delta_feat
+            x = F.dropout(x, p=p)
             #TODO DONE
         if strategy == AdaptationStrategy.FEATNOISE:
             mean, std = 0, p
@@ -105,13 +104,13 @@ class FeatAgent:
         data_tmp.edge_index = edge_index
         
         if edge_weight is not None:
-            data_tmp.edge_weight = edge_weight
+            data_tmp.edge_attr = edge_weight.unsqueeze(-1)
         #     output = model.forward_impl(x, edge_index, edge_weight.unsqueeze(-1), acquisition=True)[0]
         #     print("output: ", output.shape)
         # else:
         #     output = model.forward_impl(x, edge_index, acquisition=True)[0]
             # print("output: ", output.shape)
-        output = model.predict(data_tmp, acquisition=True).embeddings
+        output = model.predict(data_tmp, acquisition=True).embeddings[0]
         return output
 
     def test_time_loss(self, feat, edge_index, edge_weight=None, mode='train'):
@@ -126,7 +125,6 @@ class FeatAgent:
         output1 = self.augment( feat,edge_index,edge_weight,strategy=config.strategy,p=0.05)
         output2 = self.augment( feat,edge_index,edge_weight,strategy=AdaptationStrategy.DROPEDGE,p=0.0)
         output3 = self.augment(feat,edge_index,edge_weight,strategy=AdaptationStrategy.SHUFFLE)
-
         if config.margin != -1:
             loss = inner(output1, output2) - inner_margin(output2, output3, margin=config.margin)
         else:

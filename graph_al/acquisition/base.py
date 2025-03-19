@@ -35,8 +35,8 @@ class BaseAcquisitionStrategy:
         self.requires_model_prediction = config.requires_model_prediction
         self.verbose = config.verbose
         self.scale = config.scale
-        if config.tta:
-
+        if config.tta_enabled:
+            print("TTA ENABLED")
             self.tta = True
             
             self.tta_strat_node = config.tta.strat_node
@@ -44,12 +44,12 @@ class BaseAcquisitionStrategy:
             
             self.tta_norm = config.tta.norm
             self.num = config.tta.num
-            self.tta_retrain_model = config.tta.retrain_model
             if self.tta_strat_edge == EdgeAugmentation.ADAPTIVE:
                 self.drop_weights = None
             if self.tta_strat_node == NodeAugmentation.ADAPTIVE:
                 self.feature_weights = None
             self.tta_filter = config.tta.filter
+            self.probs = config.tta.probs
         else:
             self.tta = False
         if config.adaptation:
@@ -97,57 +97,6 @@ class BaseAcquisitionStrategy:
             Dict[str, Tensor | None]: meta information from this aggregation
         """
         ...
-        
-
-    def compute_ppr_pyg(self,edge_index, num_nodes, alpha=0.15):
-        """
-        Compute the Personalized PageRank (PPR) diffusion matrix using PyTorch Geometric.
-
-        Parameters:
-        edge_index (torch.Tensor): Edge indices of the graph (2 x E).
-        edge_weight (torch.Tensor): Edge weights (E,).
-        num_nodes (int): Number of nodes in the graph.
-        alpha (float): Teleport probability (default: 0.15).
-
-        Returns:
-        torch.Tensor: The PPR diffusion matrix in dense format (N x N).
-        """
-        # Convert edge_index and edge_weight to adjacency matrix (dense)
-        adj_matrix = to_dense_adj(edge_index, max_num_nodes=num_nodes)[0]
-        # torch.save(adj_matrix, 'adj_matrix.pt')
-        # Degree matrix (D) and its inverse
-        degrees = adj_matrix.sum(dim=1)  # Sum rows to get node degrees
-        D_inv = torch.diag(1.0 / degrees)
-
-        # Transition matrix (T = D^-1 * A)
-        T = torch.mm(D_inv, adj_matrix)
-
-        # Identity matrix (I)
-        I = torch.eye(num_nodes, device=adj_matrix.device)
-
-        # Compute PPR diffusion matrix: A_ppr = alpha * (I - (1 - alpha) * T)^-1
-        # diffusion_matrix = torch.linalg.inv(I - (1 - alpha) * T)  # Matrix inversion
-        t= 2
-        diffusion_matrix = torch.exp(-(I-T)*t)
-        # A_ppr = alpha * diffusion_matrix
-        A_ppr = diffusion_matrix
-        return A_ppr
-    
-    def dense_to_edge_index(self,dense_matrix: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Converts a dense adjacency matrix to edge index format.
-
-        Args:
-            dense_matrix (Tensor): Dense adjacency matrix (N x N).
-
-        Returns:
-            Tuple[Tensor, Tensor]: Edge indices (2 x E) and edge weights (E).
-        """
-        edge_index = dense_matrix.nonzero(as_tuple=False).t()
-        edge_weight = dense_matrix[edge_index[0], edge_index[1]]
-        return edge_index, edge_weight
-
-
     
     def augment_data_node(self, data, generator):
         """
@@ -165,12 +114,14 @@ class BaseAcquisitionStrategy:
             case "dropout":
                 return torch.nn.functional.dropout(x, p=0.3, training=True)
             case "mask":
-                return mask_feature(x, p=0.3, mode='col')
+                return mask_feature(x, p=0.3, mode='col')[0]
             case "noise":
                 noise_mask = torch.randn_like(x) * 0.3
                 return x + noise_mask
             case "adaptive":
                 return self.drop_feature_weighted_2(x, self.feature_weights, p=0.3).to(device=x.device)
+            case _:
+                return x
     
     def augment_data_edge(self, data, generator):
         """
@@ -195,6 +146,8 @@ class BaseAcquisitionStrategy:
                 edge_probs[train_mask] = 0.8
                 edge_to_drop = torch.bernoulli(edge_probs).to(torch.bool)
                 edge_index = edge_index[:, ~edge_to_drop]
+            case _:
+                edge_index = edge_index
         return edge_index
     
     def augment_data(self, data, generator):
@@ -224,20 +177,14 @@ class BaseAcquisitionStrategy:
         
         prediction = model.predict(dataset.data, acquisition=True)
         pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1)
-        prediction.probabilities = prediction.get_probabilities(propagated=True)
-        prediction.probabilities_unpropagated = prediction.get_probabilities(propagated=False)
+        if self.probs:
+            prediction.probabilities = prediction.get_probabilities(propagated=True)
+            prediction.probabilities_unpropagated = prediction.get_probabilities(propagated=False)
         cnt = torch.full_like(pred_o, (self.num+1), dtype=torch.float)
-        
-        if self.tta_retrain_model:
-            model_tmp = get_model(model_config, dataset, torch.default_generator).to(dataset.data.x.device)
-            model_state = deepcopy(model_tmp.state_dict())
-        else:
-            model_tmp = model
+        model_tmp = model
         for _ in range(num):
             data_clone = self.augment_data(dataset.data, generator)
-            
             from graph_al.model.sgc import SGC
-            
             if isinstance(model, SGC):
                 x = model.get_diffused_node_features(data_clone, cache= False).cpu().numpy()        
                 probs= model.logistic_regression.predict_proba(x)
@@ -247,13 +194,6 @@ class BaseAcquisitionStrategy:
                 p_tmp = Prediction(probabilities=probs, probabilities_unpropagated=probs_unprop, logits=logits, logits_unpropagated=logits_unprop)
 
             else:
-                # RETRAINING
-                # from graph_al.active_learning import train_model
-                # if self.tta_retrain_model:
-                #     model_tmp.load_state_dict(model_state)
-                #     acquisition_step =  data_clone.mask_train.sum().item()
-                #     with torch.enable_grad():
-                #         train_model(model_config.trainer, model_tmp, dataset, generator, acquisition_step=acquisition_step)   
                 with torch.no_grad():
                     p_tmp = model_tmp.predict(data_clone, acquisition=True)
                     p_tmp.probabilities = p_tmp.get_probabilities(propagated=True)
@@ -281,22 +221,18 @@ class BaseAcquisitionStrategy:
                 p_tmp.logits_unpropagated[mask] = 0
                 p_tmp.probabilities_unpropagated[mask] = 0
                 cnt[mask] -= 1
-                
+            
+            if self.probs:
+                prediction.probabilities += p_tmp.get_probabilities(propagated=True)
+                prediction.probabilities_unpropagated += p_tmp.get_probabilities(propagated=False)
             prediction.logits += p_tmp.get_logits(propagated=True)
             prediction.logits_unpropagated += p_tmp.get_logits(propagated=False)
-            prediction.probabilities += p_tmp.get_probabilities(propagated=True)
-            prediction.probabilities_unpropagated += p_tmp.get_probabilities(propagated=False)
-
-        i = dataset.data.get_mask(DatasetSplit.TRAIN).sum().item()
-        torch.save(p_tmp.embeddings, f'augmented_embeddings_{i}.pt')
-        torch.save(prediction.embeddings, f'original_embeddings_{i}.pt')
-        torch.save(prediction.get_probabilities(propagated=True).argmax(dim=-1)[0], f'original_prediction{i}.pt')
-        torch.save(p_tmp.get_probabilities(propagated=True).argmax(dim=-1)[0], f'augmented_prediction{i}.pt')
 
         if self.tta_norm:
-            prediction.probabilities /= cnt.unsqueeze(-1)
+            if self.probs:
+                prediction.probabilities /= cnt.unsqueeze(-1)
+                prediction.probabilities_unpropagated /= cnt.unsqueeze(-1)
             prediction.logits /= cnt.unsqueeze(-1)
-            prediction.probabilities_unpropagated /= cnt.unsqueeze(-1)
             prediction.logits_unpropagated /= cnt.unsqueeze(-1)
         
         return prediction
@@ -330,43 +266,8 @@ class BaseAcquisitionStrategy:
         acquired_idxs = []
         acquired_meta = defaultdict(list)
         mask_acquired_idxs = torch.zeros_like(dataset.data.mask_train_pool)
-        
-        
-        self.tta = False
-        
-        # dataset_original = deepcopy(dataset)
-        # if hasattr(self, 'adaptation'):
-        #     # ADAPT
-        #     prediction = model.predict(dataset.data, acquisition=True)
-        #     prediction_n = torch.zeros_like(prediction.get_probabilities(propagated=True))
-        #     for i in range(1):
-        #         with torch.enable_grad():
-        #             from graph_al.test_time_adaptation.feat_agent import FeatAgent
-        #             agent = FeatAgent( dataset,model, self.adaptation)
-        #             new_feat, output = agent.learn_graph(dataset)
-        #             dataset.data.x = dataset.data.x + new_feat
-        #             for p in model.parameters():
-        #                 p.requires_grad = True
-        #         with torch.no_grad():
-        #             p_n = model.predict(dataset.data, acquisition=True)
-        #             prediction_n += p_n.get_probabilities(propagated=True)
-                    
-        #         dataset.data.x = dataset_original.data.x
-        #     prediction.probabilities = prediction_n
-        # else:
-        #     prediction = None
-        
-        # print(dataset.data.x.sum())
-        
-        
-        
-        # dataset.data.x = dataset.data.x + new_feat
-        # for p in model.parameters():
-        #     p.requires_grad = True
-        
-        
-        
-        dataset.data.get_mask(DatasetSplit.TRAIN)
+
+    
         if self.requires_model_prediction:
             if self.tta:
                 prediction = self.tta_predict(model,model_config, dataset, generator,num = self.num)          
@@ -388,7 +289,6 @@ class BaseAcquisitionStrategy:
         if self.is_stateful:
             self.update(acquired_idxs, prediction, dataset, model)
         
-        # dataset.data.x = dataset_original.data.x
         
         return torch.tensor(acquired_idxs), self._aggregate_acquired_meta(acquired_meta)
     

@@ -15,7 +15,12 @@ from graph_al.acquisition.config import (
     AcquisitionStrategyAugmentationRiskConfig,
     AcquisitionStrategyAugmentLatentConfig,
     AcquisitionStrategyLatentDistanceConfig,
-    AcquisitionStrategyAdaptationRiskConfig
+    AcquisitionStrategyAdaptationRiskConfig,
+    AcquisitionStrategyAdaptationConfig,
+    AcquisitionStrategyEducatedRandomConfig,
+    AcquisitionStrategyExpectedQueryConfig,
+    AcquisitionStrategyGEEMAttributeConfig
+    
 )
 from graph_al.acquisition.prediction_attribute import AcquisitionStrategyByPredictionAttribute
 from graph_al.acquisition.random import AcquisitionStrategyRandom
@@ -38,13 +43,17 @@ from graph_al.data.base import Dataset
 from graph_al.acquisition.galaxy import AcquisitionStrategyGalaxy
 from graph_al.acquisition.leave_out import AcquisitionStrategyLeaveOut
 from graph_al.acquisition.augmentation_risk import AcquisitionStrategyAugmentationRisk
+from graph_al.acquisition.expected_query import AcquisitionStrategyExpectedQuery
 from graph_al.acquisition.augment_latent import AcquisitionStrategyAugmentLatent
 from graph_al.acquisition.latent_distance import AcquisitionStrategyLatentDistance
 from graph_al.acquisition.adaptation_risk import AcquisitionStrategyAdaptationRisk
+from graph_al.acquisition.adaptation import AcquisitionStrategyAdaptation
+from graph_al.acquisition.educated_random import AcquisitionStrategyEducatedRandom
+from graph_al.acquisition.geem_attribute import AcquisitionStrategyGEEMAttribute
 
 import torch
 
-def get_acquisition_strategy(config: AcquisitionStrategyConfig, model: BaseModel, dataset: Dataset, generator: torch.Generator) -> BaseAcquisitionStrategy:
+def get_acquisition_strategy(config: AcquisitionStrategyConfig, dataset: Dataset) -> BaseAcquisitionStrategy:
     match config.type_:
         case AcquireByPredictionAttributeConfig.type_:
             return AcquisitionStrategyByPredictionAttribute(config) # type: ignore
@@ -98,5 +107,13 @@ def get_acquisition_strategy(config: AcquisitionStrategyConfig, model: BaseModel
             return AcquisitionStrategyLatentDistance(config) # type: ignore
         case AcquisitionStrategyAdaptationRiskConfig.type_:
             return AcquisitionStrategyAdaptationRisk(config) # type: ignore
+        case AcquisitionStrategyAdaptationConfig.type_:
+            return AcquisitionStrategyAdaptation(config) # type: ignore
+        case AcquisitionStrategyEducatedRandomConfig.type_:
+            return AcquisitionStrategyEducatedRandom(config) # type: ignore
+        case AcquisitionStrategyExpectedQueryConfig.type_:
+            return AcquisitionStrategyExpectedQuery(config) # type: ignore
+        case AcquisitionStrategyGEEMAttributeConfig.type_:
+            return AcquisitionStrategyGEEMAttribute(config)
         case _:
             raise ValueError(f'Unsupported acquisition strategy {config.type_}')

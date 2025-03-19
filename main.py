@@ -20,9 +20,12 @@ from graph_al.acquisition.base import mask_not_in_val
 from graph_al.data.enum import DatasetSplit
 from graph_al.test_time_adaptation.graph_agent import GraphAgent
 from graph_al.test_time_adaptation.feat_agent import FeatAgent
+from graph_al.test_time_adaptation.edge_agent import EdgeAgent
 import wandb
 import tqdm
 import pandas as pd
+from graph_al.acquisition.enum import *
+
 
 import numpy as np # needed for using the eval resolver
 
@@ -57,10 +60,11 @@ def setup_environment():
 def main(config_dict: DictConfig) -> None:
     
     # delayed imports for a fast import of the main module
-    
+
     import torch
     setup_environment()
     OmegaConf.resolve(config_dict)
+    
     config: Config = hydra.utils.instantiate(config_dict, _convert_='object')
     rng = set_seed(config)
     generator = torch.random.manual_seed(rng.integers(2**31))
@@ -74,9 +78,13 @@ def main(config_dict: DictConfig) -> None:
     assert outdir is not None
     
     dataset = get_dataset(config.data, generator)
+    
+    if config.acquisition_strategy.tta is None:
+        config.model.cached = False
+    
     model = get_model(config.model, dataset, generator)
-    acquisition_strategy = get_acquisition_strategy(config.acquisition_strategy, model, dataset, generator)
-    initial_acquisition_strategy = get_acquisition_strategy(config.initial_acquisition_strategy, model, dataset, generator)
+    acquisition_strategy = get_acquisition_strategy(config.acquisition_strategy, dataset)
+    initial_acquisition_strategy = get_acquisition_strategy(config.initial_acquisition_strategy, dataset)
 
     num_splits = config.data.num_splits
     if not dataset.has_multiple_splits and num_splits > 1:
@@ -87,13 +95,19 @@ def main(config_dict: DictConfig) -> None:
     from copy import deepcopy
     dataset_original = deepcopy(dataset)
     dataset_original.data = dataset_original.data.to(dataset.data.x.device)
-    
+
     results = []
-    r = []
+    if config.acquisition_strategy.adaptation_enabled is None and config.acquisition_strategy.adaptation is not None:
+        print("ENABLING ADAPTATION")
+        config.acquisition_strategy.adaptation_enabled = True
+    
+    if config.acquisition_strategy.tta_enabled is None and config.acquisition_strategy.tta is not None:
+        print("ENABLING TTA")
+        config.acquisition_strategy.tta_enabled = True
+        
     for split_idx in range(num_splits):
         dataset = deepcopy(dataset_original)
         dataset.split(generator=generator, mask_not_in_val=mask_not_in_val(acquisition_strategy, initial_acquisition_strategy))
-
         for init_idx in range(config.model.num_inits):
             get_logger().info(f'Dataset split {split_idx}, Model initialization {init_idx}')
             acquisition_metrics_init = []
@@ -104,7 +118,6 @@ def main(config_dict: DictConfig) -> None:
             acquisition_step = 0
             acquisition_results = []
             dataset.reset_train_idxs()
-            
             
                       
             # 0. Initial aqcuisition: Usually randomly select nodes
@@ -119,7 +132,6 @@ def main(config_dict: DictConfig) -> None:
             acquisition_results.append(result)
             
             
-            
             iterator = range(1, 1 + config.acquisition_strategy.num_steps)
             if config.progress_bar:
 
@@ -131,101 +143,38 @@ def main(config_dict: DictConfig) -> None:
                 if dataset.data.mask_train_pool.sum().item() <= 0:
                     get_logger().info(f'Acquisition ends early because the entire pool was acquired: {dataset.data.class_counts_train.tolist()}')
                     break
+                print()
+                #################################################################
+                if config.acquisition_strategy.adaptation_enabled:
+                    agent = FeatAgent(dataset,model, config.acquisition_strategy.adaptation)
+                    with torch.enable_grad():
+                        new_feat, _ = agent.learn_graph(dataset)
+                    dataset.data.x = dataset.data.x + new_feat
+                    dataset.data.x = deepcopy(dataset.data.x.detach())
+                #################################################################
                 
-                
-               
-                
-                
-                
-                agent = FeatAgent(dataset,model, config.acquisition_strategy.adaptation)
-                new_feat,  loss = agent.learn_graph(dataset)
-                
-                dataset.data.x = dataset.data.x + new_feat
-                dataset.data.x = deepcopy(dataset.data.x.detach())
-                
-                
-                # p_n = model.predict(dataset.data, acquisition=True).get_predictions()
-                
-                # # RESET - ONLY LEARN NEW FEAT
-                # dataset.data.x = dataset_original.data.x
-                # p_o = model.predict(dataset.data, acquisition=True).get_predictions()
-                
-                # print("Original accuracy: ", (p_o==dataset.data.y).sum().item()/len(dataset.data.y))
-                # print("New accuracy: ", (p_n==dataset.data.y).sum().item()/len(dataset.data.y))
-                # dataset.data.x = dataset_original.data.x
-                
-                # CHOOSE
+                if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.NONE and config.acquisition_strategy.adaptation_enabled:
+                    dataset.data.x = dataset_original.data.x
                 with torch.no_grad():
                     acquired_idxs, acquisition_metrics = acquisition_strategy.acquire(model, dataset, config.acquisition_strategy.num_to_acquire_per_step, config.model, generator)
                 acquisition_metrics_init.append(acquisition_metrics)
                 dataset.add_to_train_idxs(acquired_idxs)
                 
-                # NO TRAIN PRED ORIGINAL
-                # dataset.data.x = dataset_original.data.x
-                # pred_ooo = model.predict(dataset.data, acquisition=True).get_predictions()
-                # scores_ooo = model.predict(dataset.data, acquisition=True).get_max_score(propagated= True)
-                
-                
-                # # NO TRAIN - PRED ADAPTED
-                # dataset.data.x = dataset.data.x + new_feat
-                # pred_oo = model.predict(dataset.data, acquisition=True).get_predictions()
-                # scores_oo = model.predict(dataset.data, acquisition=True).get_max_score(propagated= True)
-                dataset.data.x = dataset_original.data.x
-                
+                # CHOOSE - RESET
+                if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.QUERY and config.acquisition_strategy.adaptation_enabled:
+                    dataset.data.x = dataset_original.data.x
 
                 # 2. Retrain the model
                 if config.retrain_after_acquisition and acquisition_strategy.retrain_after_each_acquisition is not False:
                     model.reset_parameters(generator=generator)
-                
-                
-                
-                
-                
-                
-                # TRAIN ADAPTED - PRED ADAPTED
-                # dataset.data.x = dataset.data.x + new_feat
-                # model_o = deepcopy(model)
-                # result_o = train_model(config.model.trainer, model_o, dataset, generator, acquisition_step=acquisition_step)
-                # pred_o = model_o.predict(dataset.data, acquisition=True).get_predictions()
-                # scores_o = model_o.predict(dataset.data, acquisition=True).get_max_score(propagated= True)
-                
-                # # # RESET - ONLY ACQUSITION
-                # dataset.data.x = dataset_original.data.x
-                
+                   
                 # # TRAIN
-                # # TRAIN ORIGINAL - PRED ORIGINAL
                 result = train_model(config.model.trainer, model, dataset, generator, acquisition_step=acquisition_step)
-                # pred_original = model.predict(dataset.data, acquisition=True).get_predictions()
-                # scores_original = model.predict(dataset.data, acquisition=True).get_max_score(propagated= True)
-                
-                # # TRAIN ORIGINAL - PRED ADAPTED
-                # dataset.data.x = dataset.data.x + new_feat
-                # pred_adapted = model.predict(dataset.data, acquisition=True).get_predictions()
-                # scores_adapted = model.predict(dataset.data, acquisition=True).get_max_score(propagated= True)
-                # dataset.data.x = dataset_original.data.x
-                # print()
-                # print(f"Pred original original acc: {(pred_ooo==dataset.data.y).sum().item()/len(dataset.data.y)} - {scores_ooo.mean()} - {scores_ooo.std()}" )
-                # print(f"Pred original adapted acc: {(pred_oo==dataset.data.y).sum().item()/len(dataset.data.y)} - {scores_oo.mean()} - {scores_oo.std()}" )
-                # print(f"Trained Original acc: {(pred_original==dataset_original.data.y).sum().item()/len(dataset_original.data.y)} - {scores_original.mean()} - {scores_original.std()}" )
-                # print(f"Train adapted acc: {(pred_o==dataset.data.y).sum().item()/len(dataset.data.y)} - {scores_o.mean()} - {scores_o.std()}" )
-                # print(f"Adapted acc: {(pred_adapted==dataset.data.y).sum().item()/len(dataset.data.y)} - {scores_adapted.mean()} - {scores_adapted.std()}" )
-                
-                # for l in [ 5e-4]:
-                #     for e in [20]:
-                #         config.acquisition_strategy.adaptation.lr_feat = l
-                #         config.acquisition_strategy.adaptation.epochs = e
-                #         agent = FeatAgent(dataset,model, config.acquisition_strategy.adaptation)
-                #         new_feat,  loss = agent.learn_graph(dataset)
-                #         dataset.data.x = dataset.data.x + new_feat
-                #         pred_n = model.predict(dataset.data, acquisition=True).get_predictions()
-                #         dataset.data.x = dataset_original.data.x
-                #         print(f"{e}-{l}-{acquisition_step}: {(pred_n==dataset.data.y).sum().item()/len(dataset.data.y)} - {loss}")
-                #         r.append((split_idx, init_idx,acquisition_step,e,l,(pred_n==dataset.data.y).sum().item()/len(dataset.data.y), loss.item()))
-                
-                # # RESET - ACQUISTION AND TRAIN    
-                # dataset.data.x = dataset_original.data.x
-                
-                # input()
+
+                if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.TRAIN and config.acquisition_strategy.adaptation_enabled:
+                    dataset.data.x = dataset_original.data.x
+
+                torch.cuda.empty_cache()
                 
                 # 3. Collect results
                 result.acquired_idxs = acquired_idxs.cpu()
@@ -240,6 +189,7 @@ def main(config_dict: DictConfig) -> None:
             # After the budget is exhausted
             run_results = Results(acquisition_results, dataset_split_num=split_idx, model_initialization_num=init_idx)
             results.append(run_results)
+ 
             # Checkpoint this model
             torch.save(model.state_dict(), outdir / f'model-{split_idx}-{init_idx}-{acquisition_step}.ckpt')
             torch.save({'mask_train' : dataset.data.get_mask(DatasetSplit.TRAIN).cpu(),
@@ -256,7 +206,7 @@ def main(config_dict: DictConfig) -> None:
     if wandb.run is not None:  
         wandb.run.log({}) # Ensures a final commit to the wandb server
         wandb.finish()
-
+    
         
 if __name__ == '__main__':
     main()

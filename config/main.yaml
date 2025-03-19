@@ -20,20 +20,19 @@ acquisition_strategy:
 
 # Where to write seml, hydra, wandb logs etc.
 #output_base_dir: /home/banfizsombor/work/uq-for-al-on-graphs/datagraph-al/runs/${wandb.group}/${wandb.name}
-output_base_dir: ./output/runs/${wandb.group}/${wandb.name}
-
+output_base_dir: ./output2/runs/${data.name}/${model.type_}/${acquisition_strategy.name}/${wandb.name}
 seed: ~
 
 wandb:
   id: ~
   entity: ~
   project: graph-al
-  group: test
+  group: ${model.type_}
   mode: ~
   name: ~
   dir: ${output_base_dir}
   tags: ~
-  log_internal_dir: /nfs/staff-ssd/fuchsgru/wandb/null # something that links to /dev/null to discard internal logs
+  # log_internal_dir: ../../../../dev/null #/nfs/staff-ssd/fuchsgru/wandb/null # something that links to /dev/null to discard internal logs
 
 hydra:
   job:

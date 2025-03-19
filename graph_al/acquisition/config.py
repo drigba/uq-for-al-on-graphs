@@ -21,16 +21,13 @@ class AcquisitionStrategyConfig:
     requires_model_prediction: bool = True
     balanced: bool = False # whether to select randomly but keep the class distribution balanced
     name: str | None = None
-    # tta: bool | None = False # whether to use test-time augmentation for the acquisition
-    # tta_strat_node: str | None = "noise" # which node augmentation strategy to use
-    # tta_strat_edge: str | None = "mask" # which edge augmentation strategy to use
-    # tta_norm: bool | None = True
     scale: float | None = 1.0
-    # tta_retrain_model: bool | None = False
-    # num_tta: int = 100 # number of tta samples
-    # tta_filter: bool = False # whether to filter the tta samples
     tta: TTAConfig | None = None
+    tta_enabled: bool | None = None
     adaptation: AdaptationConfig | None = None
+    adaptation_enabled: bool | None = None
+
+
     
 @dataclass
 class AcquisitionStrategyByAttributeConfig(AcquisitionStrategyConfig):
@@ -137,7 +134,14 @@ class AcquisitionStrategyGEEMConfig(AcquisitionStrategyConfig):
     compute_risk_on_subset: int | None = None # On how many nodes is the risk evaluated as a subset
     subsample_pool : int | None = None # Radomly only consider a subset of the pool
 
-
+@dataclass
+class AcquisitionStrategyGEEMAttributeConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.GEEM_ATTRIBUTE
+    multiprocessing: bool = False
+    num_workers: int | None = None
+    compute_risk_on_subset: int | None = None # On how many nodes is the risk evaluated as a subset
+    subsample_pool : int | None = None # Radomly only consider a subset of the pool
+    higher_is_better: bool = False
 
 @dataclass
 class AcquisitionStrategyApproximateUncertaintyConfig(AcquisitionStrategyByAttributeConfig):
@@ -162,13 +166,17 @@ class AcquisitionStrategyAugmentationRiskConfig(AcquisitionStrategyByAttributeCo
     higher_is_better: bool = False 
     
 @dataclass
+class AcquisitionStrategyExpectedQueryConfig(AcquisitionStrategyByAttributeConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.EXPECTED_QUERY
+    higher_is_better: bool = False 
+    
+@dataclass
 class AcquisitionStrategyAdaptationRiskConfig(AcquisitionStrategyByAttributeConfig):
     type_: AcquisitionStrategyType = AcquisitionStrategyType.ADAPTATION_RISK
     higher_is_better: bool = False
     lr_feat: float = 0.0005 # learning rate for feature adaptation
     lr_adj: float = 0.1 # learning rate for structure adaptation
     epochs: int = 20 # number of epochs for feature adaptation
-    seed: int = 0 # seed for reproducibility
     strategy: str = AdaptationStrategy.DROPEDGE # strategy for augmenting the graph
     margin: float = -1 # margin for the loss function
     ratio: float = 0.1 # budget for changing the graph structure
@@ -176,6 +184,18 @@ class AcquisitionStrategyAdaptationRiskConfig(AcquisitionStrategyByAttributeConf
     loop_adj: int = 1 # number of loops for optimizing structure
     loop_feat: int = 4 # number of loops for optimizing features
     debug:int = 0 # debug flag
+
+@dataclass
+class AcquisitionStrategyAdaptationConfig(AcquisitionStrategyAdaptationRiskConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.ADAPTATION
+
+@dataclass
+class AcquisitionStrategyEducatedRandomConfig(AcquisitionStrategyAdaptationRiskConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.EDUCATED_RANDOM
+    top_percent: float = 0.7
+    low_percent: float = 0.01
+    embedded_strategy: AcquisitionStrategyConfig = field(default_factory=AcquisitionStrategyConfig)
+
     
 @dataclass
 class AcquisitionStrategyLatentDistanceConfig(AcquisitionStrategyByAttributeConfig):
@@ -269,6 +289,10 @@ cs.store(name="base_augmentation_risk", node=AcquisitionStrategyAugmentationRisk
 cs.store(name="base_augment_latent", node=AcquisitionStrategyAugmentLatentConfig, group='acquisition_strategy')
 cs.store(name="base_latent_distance", node=AcquisitionStrategyLatentDistanceConfig, group='acquisition_strategy')
 cs.store(name="base_adaptation_risk", node=AcquisitionStrategyAdaptationRiskConfig, group='acquisition_strategy')
+cs.store(name="base_adaptation", node=AcquisitionStrategyAdaptationConfig, group='acquisition_strategy')
+cs.store(name="base_educated_random", node=AcquisitionStrategyEducatedRandomConfig, group='acquisition_strategy')
+cs.store(name="base_expected_query", node=AcquisitionStrategyExpectedQueryConfig, group='acquisition_strategy')
+cs.store(name="base_geem_attribute", node=AcquisitionStrategyGEEMAttributeConfig, group='acquisition_strategy')
 
 # register to all initial acquisition strategy groups as well
 cs.store(name="base_config", node=AcquisitionStrategyConfig, group='initial_acquisition_strategy')
@@ -292,3 +316,9 @@ cs.store(name="base_uncertainty_difference", node=AcquisitionStrategyUncertainty
 cs.store(name="base_approximate_uncertainty", node=AcquisitionStrategyApproximateUncertaintyConfig, group='initial_acquisition_strategy')
 cs.store(name="base_galaxy", node=AcquisitionStrategyGalaxyConfig, group='initial_acquisition_strategy')
 cs.store(name="base_badge", node=AcquisitionStrategyBadgeConfig, group='initial_acquisition_strategy')
+
+
+cs.store(name="base_geem", node=AcquisitionStrategyGEEMConfig, group='acquisition_strategy.embedded_strategy')
+cs.store(name="base_geem_attribute", node=AcquisitionStrategyGEEMAttributeConfig, group='acquisition_strategy.embedded_strategy')
+cs.store(name="acquire_by_prediction_attribute", node=AcquireByPredictionAttributeConfig, group='acquisition_strategy.embedded_strategy')
+

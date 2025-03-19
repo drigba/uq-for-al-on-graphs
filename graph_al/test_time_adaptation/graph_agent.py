@@ -72,145 +72,100 @@ class GraphAgent(EdgeAgent):
         edge_index, edge_weight = edge_index, None
         model = self.model
         
-        for it in tqdm(range(config.epochs//(config.loop_feat+config.loop_adj))):
+        for it in range(config.epochs//(config.loop_feat+config.loop_adj)):
             for loop_feat in range(config.loop_feat):
                 self.optimizer_feat.zero_grad()
-                data_tmp = deepcopy(data)
-
-                data_tmp = data_tmp.to(self.device)
-                data_tmp.x = data_tmp.x + delta_feat
-                
-                loss = self.test_time_loss(self.model,data_tmp)
-                loss = delta_feat.sum()
+                loss = self.test_time_loss(feat, edge_index, edge_weight)
                 loss.backward()
-                print("loss", loss, loss.grad)
-                print("delta grad", delta_feat.grad.mean(), delta_feat.grad.std(), delta_feat.grad.max(), delta_feat.grad.min())
-                if loop_feat == 0:
-                    print(f'Epoch {it}, Loop Feat {loop_feat}: {loss.item()}')
-
+                # if loop_feat == 0:
+                #     print(f'Epoch {it}, Loop Feat {loop_feat}: {loss.item()}')
                 self.optimizer_feat.step()
-                print(","*30)
-                print("delta feat", delta_feat.mean(), delta_feat.std(), delta_feat.max(), delta_feat.min())
-                print("data", data.x.mean(), data.x.std(), data.x.max(), data.x.min())
-                print("data+delta", (data.x+delta_feat).mean())  
-                print(","*30)
-
             new_feat = (feat+delta_feat).detach()
             
-            # for loop_adj in range(config.loop_adj):
-            #     self.perturbed_edge_weight.requires_grad = True
-            #     edge_index, edge_weight  = self.get_modified_adj()
-            #     if torch.cuda.is_available() and self.do_synchronize:
-            #         torch.cuda.empty_cache()
-            #         torch.cuda.synchronize()
-            #     data_tmp = deepcopy(data)
-            #     data_tmp.x,data_tmp.edge_index, data_tmp.edge_attr = new_feat,edge_index, edge_weight
-            #     # loss = self.test_time_loss(data_tmp)
+            for loop_adj in range(config.loop_adj):
+                self.perturbed_edge_weight.requires_grad = True
+                edge_index, edge_weight  = self.get_modified_adj()
+                if torch.cuda.is_available() and self.do_synchronize:
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
                 
-            #     from  torch_geometric.nn import GCNConv
-            #     l = GCNConv(2879,64).cuda()
-            #     for param in l.parameters():
-            #         param.requires_grad = False
-                
-            #     output = self.model.forward_impl(new_feat,edge_index, edge_weight.unsqueeze(-1), acquisition=True)[0]
-            #     loss = output.sum()
+                loss = self.test_time_loss(new_feat, edge_index, edge_weight)
+                gradient = grad_with_checkpoint(loss, self.perturbed_edge_weight)[0]
+                if not config.existing_space:
+                    if torch.cuda.is_available() and self.do_synchronize:
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
 
-            #     gradient = grad_with_checkpoint(loss, self.perturbed_edge_weight)[0]
-            #     if not config.existing_space:
-            #         if torch.cuda.is_available() and self.do_synchronize:
-            #             torch.cuda.empty_cache()
-            #             torch.cuda.synchronize()
+                # if loop_adj == 0:
+                #     print(f'Epoch {it}, Loop Adj {loop_adj}: {loss.item()}')    
 
-            #     if loop_adj == 0:
-            #         print(f'Epoch {it}, Loop Adj {loop_adj}: {loss.item()}')    
+                with torch.no_grad():
+                    self.update_edge_weights(n_perturbations, it, gradient)
+                    self.perturbed_edge_weight = self.project(
+                        n_perturbations, self.perturbed_edge_weight, self.eps)
+                    del edge_index, edge_weight #, logits
 
-            #     with torch.no_grad():
-            #         self.update_edge_weights(n_perturbations, it, gradient)
-            #         self.perturbed_edge_weight = self.project(
-            #             n_perturbations, self.perturbed_edge_weight, self.eps)
-            #         del edge_index, edge_weight #, logits
+                if it < self.epochs_resampling - 1:
+                    self.perturbed_edge_weight.requires_grad = True
+                    self.optimizer_adj = torch.optim.Adam([self.perturbed_edge_weight], lr=config.lr_adj)
 
-            #     if it < self.epochs_resampling - 1:
-            #         self.perturbed_edge_weight.requires_grad = True
-            #         self.optimizer_adj = torch.optim.Adam([self.perturbed_edge_weight], lr=config.lr_adj)
-
-            # # edge_index, edge_weight = self.sample_final_edges(n_perturbations, data)
-            # if config.loop_adj != 0:
-            #     edge_index, edge_weight  = self.get_modified_adj()
-            #     edge_weight = edge_weight.detach()
+            # edge_index, edge_weight = self.sample_final_edges(n_perturbations, data)
+            if config.loop_adj != 0:
+                edge_index, edge_weight  = self.get_modified_adj()
+                edge_weight = edge_weight.detach()
 
         print(f'Epoch {it+1}: {loss}')
 
         if config.loop_adj != 0:
             edge_index, edge_weight = self.sample_final_edges(n_perturbations, data)
+            
+        for param in model.parameters():
+            param.requires_grad = True
 
-        data_tmp = deepcopy(data)
-        
-        
-        
-        data_tmp.x,data_tmp.edge_index, data_tmp.edge_attr = data_tmp.x + delta_feat, edge_index, edge_weight
-        # TODO MODIFY
-        # output = model.predict(data_tmp, acquisition=True)
-        output = model.forward_impl(data_tmp.x, data_tmp.edge_index, data_tmp.edge_attr.unsqueeze(-1), acquisition=True)[0]
-        del data_tmp.edge_attr
-        return data_tmp, output
+        return delta_feat, edge_index, edge_weight
 
 
-    def augment(self,data, strategy=AdaptationStrategy.DROPEDGE, p=0.5 ):
+    def augment(self,feat, edge_index=None, edge_weight=None, strategy='dropedge', p=0.5):
         model = self.model
-        data_tmp = deepcopy(data)
-        edge_index, edge_weight = data_tmp.edge_index, data_tmp.edge_attr
-        
+        if hasattr(self, 'delta_feat'):
+            x = feat + self.delta_feat
+        else:
+            x = feat
             
         if strategy == AdaptationStrategy.SHUFFLE:
-            idx = np.random.permutation(feat.shape[0])
-            shuf_fts = feat[idx, :]
-            #TODO DONE
-            data_tmp.x = shuf_fts
+            idx = np.random.permutation(x.shape[0])
+            shuf_fts = x[idx, :]
+            x = shuf_fts
             
         if strategy == AdaptationStrategy.DROPEDGE:
             edge_index, edge_weight = dropout_adj(edge_index, edge_weight, p=p)
-            #TODO DONE
-            data_tmp.edge_index, data_tmp.edge_attr = edge_index, edge_weight
         if strategy == AdaptationStrategy.DROPNODE:
-            feat = data_tmp.x + self.delta_feat
-            mask = torch.cuda.FloatTensor(len(feat)).uniform_() > p
-            feat = feat * mask.view(-1, 1)
-            #TODO DONE
-            data_tmp.x = feat
+            mask = torch.cuda.FloatTensor(len(x)).uniform_() > p
+            x = x * mask.view(-1, 1)
         if strategy == AdaptationStrategy.RWSAMPLE:
             import augmentor as A
             walk_length = 10
             aug = A.RWSampling(num_seeds=1000, walk_length=walk_length)
             x = self.feat + self.delta_feat
-            x2, edge_index2, edge_weight2 = aug(x, edge_index, edge_weight)
-            # TODO MODIFY
-            data_tmp.x, data_tmp.edge_index, data_tmp.edge_attr = x2, edge_index2, edge_weight2
+            x, edge_index, edge_weight = aug(x, edge_index, edge_weight)
 
         if strategy == AdaptationStrategy.DROPMIX:
-            feat = data_tmp.x + self.delta_feat
-            mask = torch.cuda.FloatTensor(len(feat)).uniform_() > p
-            feat = feat * mask.view(-1, 1)
+            mask = torch.cuda.FloatTensor(len(x)).uniform_() > p
+            x = x * mask.view(-1, 1)
             edge_index, edge_weight = dropout_adj(edge_index, edge_weight, p=p)
-            #TODO DONE
-            data_tmp.x, data_tmp.edge_index, data_tmp.edge_attr = feat, edge_index, edge_weight
         if strategy == AdaptationStrategy.DROPFEAT:
-            feat = F.dropout(data_tmp.x, p=p) + self.delta_feat
-            #TODO DONE
-            data_tmp.x = feat
+            x = F.dropout(x, p=p)
         if strategy == AdaptationStrategy.FEATNOISE:
             mean, std = 0, p
-            noise = torch.randn(feat.size()) * std + mean
-            feat = feat + noise.to(feat.device)
-            #TODO DONE
-            data_tmp.x = feat
+            noise = torch.randn(x.size()) * std + mean
+            x = x + noise.to(x.device)
         
-        if data_tmp.edge_attr is not None:
-            data_tmp.edge_attr = data_tmp.edge_attr.unsqueeze(-1)
-        # output = model.predict(data_tmp, acquisition=True)
-        output = model.forward_impl(data_tmp.x, data_tmp.edge_index, data_tmp.edge_attr, acquisition=True)[0]
-        if data_tmp.edge_attr is not None:
-            data_tmp.edge_attr = data_tmp.edge_attr.squeeze(-1)
+        data_tmp = deepcopy(self.data)
+        data_tmp.x = x
+        data_tmp.edge_index = edge_index
+        if edge_weight is not None:
+            data_tmp.edge_attr = edge_weight.unsqueeze(-1)
+        output = model.predict(data_tmp, acquisition=True).embeddings[0]
         return output
 
 def inner(t1, t2):

@@ -25,6 +25,10 @@ class AcquisitionStrategyType(StrEnum):
     AUGMENT_LATENT = 'augment_latent'
     LATENT_DISTANCE = 'latent_distance'
     ADAPTATION_RISK = 'adaptation_risk'
+    ADAPTATION = 'adaptation'
+    EDUCATED_RANDOM = 'educated_random'
+    EXPECTED_QUERY = 'expected_query'
+    GEEM_ATTRIBUTE = 'geem_attribute'
 
 @unique
 class NodeAugmentation(StrEnum):
@@ -32,12 +36,14 @@ class NodeAugmentation(StrEnum):
     MASK = 'mask'
     ADAPTIVE = 'adaptive'
     DROPOUT = 'dropout'
+    NONE = 'none'
 
 @unique
 class EdgeAugmentation(StrEnum):
     MASK = 'mask'
     ADAPTIVE = 'adaptive'
     TRAIN_CONNECTION = 'train_connection'
+    NONE = 'none'
     
 @unique
 class AdaptationStrategy(StrEnum):
@@ -48,6 +54,21 @@ class AdaptationStrategy(StrEnum):
     DROPFEAT: str = 'dropfeat'
     FEATNOISE: str = 'featnoise'
     RWSAMPLE: str = 'rwsample'
+
+@unique
+class AdaptationIntegration(StrEnum):
+    NONE: str = 'none'
+    QUERY: str = 'query'
+    FINE_TUNE: str = 'fine_tune'
+    TRAIN: str = 'train'
+    TRAIN_RECURSIVE: str = 'train_recursive'
+    
+@unique
+class AdaptationMode(StrEnum):
+    FEATURE: str = 'feature'
+    STRUCTURE: str = 'structure'
+    BOTH: str = 'both'
+    
 
 @unique
 class CoresetDistance(StrEnum):

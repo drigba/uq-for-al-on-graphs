@@ -40,7 +40,7 @@ class BaseGCNConfig(ModelConfig):
     """ Base config class for GCN-based architectures """
     hidden_dims: List[int] = field(default_factory=lambda: [64,])
     improved: bool = False # If True, sets self-weight to 2
-    cached: bool = True
+    cached: bool = False
     add_self_loops: bool = True
     inplace: bool = True # Performs ReLU, dropout in-place
     
@@ -67,7 +67,7 @@ class APPNPConfig(ModelConfigMonteCarloDropout):
     name: str | None = 'appnp'
     hidden_dims: List[int] = field(default_factory=lambda: [64,])
     dropout: float = 0.0
-    cached: bool = True
+    cached: bool = False    
     add_self_loops: bool = True
     k: int = 10
     alpha: float = 0.2
@@ -101,7 +101,7 @@ class BayesOptimalConfig(ModelConfig):
     num_samples: int = 100
     importance_prob: float = 0.9
     normalized: bool = True
-    cached: bool = True
+    cached: bool = False
     
     # Beam search parameters
     beam_size: int = 1000

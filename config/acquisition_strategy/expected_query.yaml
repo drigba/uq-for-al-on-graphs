@@ -1,0 +1,5 @@
+defaults:
+  - base_expected_query
+
+name: expected_query
+higher_is_better: false 

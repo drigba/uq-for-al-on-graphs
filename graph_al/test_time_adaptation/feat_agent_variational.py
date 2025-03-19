@@ -62,7 +62,8 @@ class FeatAgentVariational:
         # print(f'Epoch {it+1}: {loss}')
         
         output = model.forward_impl(feat + self.sample_delta_feat(), edge_index, acquisition=True)[0]
-        
+        for param in model.parameters():
+            param.requires_grad = True
         return self.sample_delta_feat(), output
 
     def sample_delta_feat(self):
