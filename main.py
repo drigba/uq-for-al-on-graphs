@@ -55,6 +55,13 @@ def setup_environment():
     torch.multiprocessing.set_sharing_strategy('file_system')
     
 
+
+def reset_dataset(dataset, dataset_original):
+    dataset.data.x = dataset_original.data.x
+    dataset.data.edge_index = dataset_original.data.edge_index
+    return dataset
+
+
 @hydra.main(config_path='config', config_name='main', version_base=None)
 @print_exceptions
 def main(config_dict: DictConfig) -> None:
@@ -146,15 +153,33 @@ def main(config_dict: DictConfig) -> None:
                 print()
                 #################################################################
                 if config.acquisition_strategy.adaptation_enabled:
-                    agent = FeatAgent(dataset,model, config.acquisition_strategy.adaptation)
-                    with torch.enable_grad():
-                        new_feat, _ = agent.learn_graph(dataset)
-                    dataset.data.x = dataset.data.x + new_feat
-                    dataset.data.x = deepcopy(dataset.data.x.detach())
+                    match config.acquisition_strategy.adaptation.mode:
+                        case AdaptationMode.FEATURE:
+                            agent = FeatAgent(dataset,model, config.acquisition_strategy.adaptation)
+                            with torch.enable_grad():
+                                new_feat, _ = agent.learn_graph(dataset)
+                            dataset.data.x = dataset.data.x + new_feat
+                            dataset.data.x = deepcopy(dataset.data.x.detach())
+                        case AdaptationMode.STRUCTURE:
+                            agent = EdgeAgent(dataset,model, config.acquisition_strategy.adaptation)
+                            with torch.enable_grad():
+                                new_edge, new_edge_weight,_ = agent.learn_graph(dataset)
+                            dataset.data.edge_index = new_edge
+                        case AdaptationMode.BOTH:
+                            agent = GraphAgent(dataset, model, config.acquisition_strategy.adaptation)
+                            with torch.enable_grad():
+                                new_feat, new_edge, new_edge_weight = agent.learn_graph(dataset)
+                            dataset.data.edge_index = new_edge
+                            dataset.data.x = dataset.data.x + new_feat
+                            dataset.data.x = deepcopy(dataset.data.x.detach())
+                        case _:
+                            raise ValueError(f"Unknown adaptation mode: {config.acquisition_strategy.adaptation.mode}")
+                            
                 #################################################################
                 
                 if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.NONE and config.acquisition_strategy.adaptation_enabled:
-                    dataset.data.x = dataset_original.data.x
+                    dataset = reset_dataset(dataset, dataset_original)
+                    
                 with torch.no_grad():
                     acquired_idxs, acquisition_metrics = acquisition_strategy.acquire(model, dataset, config.acquisition_strategy.num_to_acquire_per_step, config.model, generator)
                 acquisition_metrics_init.append(acquisition_metrics)
@@ -162,8 +187,7 @@ def main(config_dict: DictConfig) -> None:
                 
                 # CHOOSE - RESET
                 if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.QUERY and config.acquisition_strategy.adaptation_enabled:
-                    dataset.data.x = dataset_original.data.x
-
+                    dataset = reset_dataset(dataset, dataset_original)
                 # 2. Retrain the model
                 if config.retrain_after_acquisition and acquisition_strategy.retrain_after_each_acquisition is not False:
                     model.reset_parameters(generator=generator)
@@ -172,7 +196,7 @@ def main(config_dict: DictConfig) -> None:
                 result = train_model(config.model.trainer, model, dataset, generator, acquisition_step=acquisition_step)
 
                 if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.TRAIN and config.acquisition_strategy.adaptation_enabled:
-                    dataset.data.x = dataset_original.data.x
+                    dataset = reset_dataset(dataset, dataset_original)
 
                 torch.cuda.empty_cache()
                 

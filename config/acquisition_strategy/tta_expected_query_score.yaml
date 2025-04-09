@@ -1,0 +1,5 @@
+defaults:
+  - base_tta_expected_query_score
+
+name: tta_expected_query_score
+higher_is_better: false 

@@ -34,45 +34,47 @@ class AcquisitionStrategyAugmentLatent(AcquisitionStrategyByAttribute):
     
     def __init__(self, config: AcquisitionStrategyAugmentLatentConfig):
         super().__init__(config)
-        self.num = config.num_tta
+        self.num = config.num
+        self.p = config.p
+        self.filter = config.filter
 
     
     @jaxtyped(typechecker=typechecked)
     def get_attribute(self, prediction: Prediction | None, model: BaseModel, dataset: Dataset, generator: Generator,
                         model_config: ModelConfig) -> Tensor:
         
-        embedding_orig = prediction.embeddings
+        embedding_orig = prediction.embeddings[0]
         edge_index = dataset.data.edge_index
         edge_weight = dataset.data.edge_attr
         prediction.probabilities = prediction.get_probabilities()
-        pred_o = prediction.probabilities.argmax(dim=-1)
+        pred_o = prediction.probabilities.argmax(dim=-1)[0]
         cnt = torch.ones_like(pred_o, dtype=torch.float)
         for _ in range(self.num):
             embedding_clone = deepcopy(embedding_orig)
             embedding_tmp = self.augment_embedding(embedding_clone, generator)
             logit_tmp = model.layers[-1](embedding_tmp, edge_index,edge_weight)
             prob_tmp = torch.softmax(logit_tmp, dim=-1)
-            pred = prob_tmp.argmax(dim=-1)
-            
-            prob_tmp[pred != pred_o] = 0
-            cnt[pred == pred_o] += 1
+            if self.filter:
+                pred = prob_tmp.argmax(dim=-1)[0]
+                prob_tmp[pred != pred_o] = 0
+                cnt[pred == pred_o] += 1
             prediction.probabilities += prob_tmp
-
-        prediction.probabilities /= cnt.unsqueeze(-1)
+        if self.filter:
+            prediction.probabilities /= cnt.unsqueeze(-1)
         scores = prediction.get_max_score(propagated=True)
         mask_predict = dataset.data.get_mask(DatasetSplit.TRAIN_POOL)
         scores[~mask_predict] = float('inf')
         return scores
     
-    def augment_embedding(self,embedding,generator):
+    def augment_embedding(self, embedding, generator):
         center_embedding = embedding.mean(dim=0)
         avg_distance = torch.norm(embedding - center_embedding, p=2, dim=-1).mean()
-        epsilon = avg_distance*0.1
+        epsilon = avg_distance * self.p
 
         noise = torch.randn_like(embedding) - 0.5
-        noise_unit_vector = noise/torch.norm(noise,p=2,dim=-1,keepdim=True)
+        noise_unit_vector = noise / torch.norm(noise, p=2, dim=-1, keepdim=True)
         
-        final_noise = torch.normal(mean=epsilon,std = epsilon*0.04)*noise_unit_vector
+        final_noise = torch.normal(mean=epsilon, std=epsilon * 0.04) * noise_unit_vector
         new_embedding = embedding + final_noise
 
         return new_embedding

@@ -7,6 +7,7 @@ output2/
 logs/
 graph_al.egg-info/
 wandb/
+notebooks/
 graph_al/utils/_sbm.cpython-311-x86_64-linux-gnu.so
 *.pt
 *.csv
@@ -15,4 +16,7 @@ graph_al/utils/_sbm.cpython-311-x86_64-linux-gnu.so
 *.c
 *.txt
 *.log
+*.png
+*.jpg
+*.zip
 util_maintenance.py

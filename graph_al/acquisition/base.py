@@ -50,6 +50,10 @@ class BaseAcquisitionStrategy:
                 self.feature_weights = None
             self.tta_filter = config.tta.filter
             self.probs = config.tta.probs
+            self.p_edge = config.tta.p_edge
+            self.p_node = config.tta.p_node
+            print("p_node: ", self.p_node)
+            print("p_edge: ", self.p_edge)
         else:
             self.tta = False
         if config.adaptation:
@@ -112,14 +116,14 @@ class BaseAcquisitionStrategy:
         x = data.x
         match self.tta_strat_node:
             case "dropout":
-                return torch.nn.functional.dropout(x, p=0.3, training=True)
+                return torch.nn.functional.dropout(x, p=self.p_node, training=True)
             case "mask":
-                return mask_feature(x, p=0.3, mode='col')[0]
+                return mask_feature(x, p=self.p_node, mode='col')[0]
             case "noise":
-                noise_mask = torch.randn_like(x) * 0.3
+                noise_mask = torch.randn_like(x) * self.p_node
                 return x + noise_mask
             case "adaptive":
-                return self.drop_feature_weighted_2(x, self.feature_weights, p=0.3).to(device=x.device)
+                return self.drop_feature_weighted_2(x, self.feature_weights, p=self.p_node).to(device=x.device)
             case _:
                 return x
     
@@ -137,12 +141,12 @@ class BaseAcquisitionStrategy:
         edge_index = data.edge_index
         match self.tta_strat_edge:
             case "mask":
-                edge_index, edge_mask = dropout_edge(edge_index, p=0.3)
+                edge_index, edge_mask = dropout_edge(edge_index, p=self.p_edge)
             case "adaptive":
-                edge_index = self.drop_edge_weighted(edge_index, self.drop_weights, p=0.3, threshold=0.7).to(device=edge_index.device)
+                edge_index = self.drop_edge_weighted(edge_index, self.drop_weights, p=self.p_edge, threshold=0.7).to(device=edge_index.device)
             case "train_connection":
                 train_mask = data.mask_train[edge_index[0]] | data.mask_train[edge_index[1]]
-                edge_probs = torch.full((edge_index.size(1),), 0.3, device=edge_index.device)
+                edge_probs = torch.full((edge_index.size(1),), self.p_edge, device=edge_index.device)
                 edge_probs[train_mask] = 0.8
                 edge_to_drop = torch.bernoulli(edge_probs).to(torch.bool)
                 edge_index = edge_index[:, ~edge_to_drop]
@@ -186,11 +190,11 @@ class BaseAcquisitionStrategy:
             data_clone = self.augment_data(dataset.data, generator)
             from graph_al.model.sgc import SGC
             if isinstance(model, SGC):
-                x = model.get_diffused_node_features(data_clone, cache= False).cpu().numpy()        
-                probs= model.logistic_regression.predict_proba(x)
-                probs_unprop= model.logistic_regression.predict_proba(data_clone.x.cpu().numpy())
-                logits = model.logistic_regression.decision_function(x)
-                logits_unprop= model.logistic_regression.decision_function(data_clone.x.cpu().numpy())
+                x = model.get_diffused_node_features(data_clone, cache= False).cpu().numpy()      
+                probs= torch.tensor(model.logistic_regression.predict_proba(x)).unsqueeze(0)
+                probs_unprop= torch.tensor(model.logistic_regression.predict_proba(data_clone.x.cpu().numpy())).unsqueeze(0)
+                logits = torch.tensor(model.logistic_regression.decision_function(x)).unsqueeze(0)
+                logits_unprop= torch.tensor(model.logistic_regression.decision_function(data_clone.x.cpu().numpy())).unsqueeze(0)
                 p_tmp = Prediction(probabilities=probs, probabilities_unpropagated=probs_unprop, logits=logits, logits_unpropagated=logits_unprop)
 
             else:
@@ -203,7 +207,6 @@ class BaseAcquisitionStrategy:
             if self.tta_filter:
                 pred = p_tmp.get_probabilities(propagated=True).argmax(dim=-1)
                 mask = pred != pred_o
-                
                 # train_mask = dataset.data.get_mask(DatasetSplit.TRAIN)
                 # if (pred[0][train_mask] != dataset.data.y[train_mask]).any():
                 #     mask = torch.ones_like(pred_o).to(torch.bool)

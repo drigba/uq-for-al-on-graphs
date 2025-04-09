@@ -46,13 +46,13 @@ class AcquisitionStrategyEducatedRandom(AcquisitionStrategyByAttribute):
 
         proxy = self.embedded_strategy.get_attribute(prediction, model, dataset, generator, model_config)
         proxy = -proxy if self.embedded_strategy.higher_is_better else proxy
-    
+
         mask_predict_indices = torch.where(dataset.data.get_mask(DatasetSplit.TRAIN_POOL))[0]
         
         num_samples = proxy.shape[0]
         num_top = int(num_samples * (self.top_percent / 100))
         num_worst = int(num_samples * (self.low_percent / 100))
-
+            
         top_indices = torch.topk(proxy, num_top, largest=True).indices
         worst_indices = torch.topk(proxy, num_worst, largest=False).indices
 
@@ -61,6 +61,7 @@ class AcquisitionStrategyEducatedRandom(AcquisitionStrategyByAttribute):
                           i not in worst_indices])
         
         random_index = remaining_indices[torch.randint(len(remaining_indices), (1,))].item()
+
         max_scores = torch.ones_like(proxy)
         max_scores[random_index] = -1.0
         

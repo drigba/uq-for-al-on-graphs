@@ -192,10 +192,22 @@ class AcquisitionStrategyAdaptationConfig(AcquisitionStrategyAdaptationRiskConfi
 @dataclass
 class AcquisitionStrategyEducatedRandomConfig(AcquisitionStrategyAdaptationRiskConfig):
     type_: AcquisitionStrategyType = AcquisitionStrategyType.EDUCATED_RANDOM
-    top_percent: float = 0.7
-    low_percent: float = 0.01
+    top_percent: float = 70
+    low_percent: float = 1
     embedded_strategy: AcquisitionStrategyConfig = field(default_factory=AcquisitionStrategyConfig)
 
+@dataclass
+class AcquisitionStrategyTTAExpectedQueryScoreConfig(AcquisitionStrategyAdaptationRiskConfig):
+    type_: AcquisitionStrategyType = AcquisitionStrategyType.TTA_EXPECTED_QUERY_SCORE
+    embedded_strategy: AcquisitionStrategyConfig = field(default_factory=AcquisitionStrategyConfig)
+    strat_node: str | None = NodeAugmentation.NOISE # which node augmentation strategy to use
+    strat_edge: str | None = EdgeAugmentation.MASK # which edge augmentation strategy to use
+    norm: bool | None = True
+    num: int = 100 # number of tta samples
+    filter: bool = False # whether to filter the tta 
+    p_edge: float = 0.3 # probability of edge dropout
+    p_node: float = 0.3
+    higher_is_better: bool = False
     
 @dataclass
 class AcquisitionStrategyLatentDistanceConfig(AcquisitionStrategyByAttributeConfig):
@@ -206,8 +218,10 @@ class AcquisitionStrategyLatentDistanceConfig(AcquisitionStrategyByAttributeConf
 class AcquisitionStrategyAugmentLatentConfig(AcquisitionStrategyConfig):
     """ Configuration for acquiring based on the latent space of the model. """
     type_: AcquisitionStrategyType = AcquisitionStrategyType.AUGMENT_LATENT
-    num_tta: int = 100
+    num: int = 100
+    p: float = 0.1
     higher_is_better: bool = False
+    filter: bool = True # whether to filter the augmentations based on the prediction
 
 @dataclass
 class AcquisitionStrategyAGELikeConfig(AcquisitionStrategyConfig):
@@ -293,6 +307,7 @@ cs.store(name="base_adaptation", node=AcquisitionStrategyAdaptationConfig, group
 cs.store(name="base_educated_random", node=AcquisitionStrategyEducatedRandomConfig, group='acquisition_strategy')
 cs.store(name="base_expected_query", node=AcquisitionStrategyExpectedQueryConfig, group='acquisition_strategy')
 cs.store(name="base_geem_attribute", node=AcquisitionStrategyGEEMAttributeConfig, group='acquisition_strategy')
+cs.store(name="base_tta_expected_query_score", node=AcquisitionStrategyTTAExpectedQueryScoreConfig, group='acquisition_strategy')
 
 # register to all initial acquisition strategy groups as well
 cs.store(name="base_config", node=AcquisitionStrategyConfig, group='initial_acquisition_strategy')

@@ -29,6 +29,7 @@ class AcquisitionStrategyType(StrEnum):
     EDUCATED_RANDOM = 'educated_random'
     EXPECTED_QUERY = 'expected_query'
     GEEM_ATTRIBUTE = 'geem_attribute'
+    TTA_EXPECTED_QUERY_SCORE = 'tta_query_expected_score'
 
 @unique
 class NodeAugmentation(StrEnum):

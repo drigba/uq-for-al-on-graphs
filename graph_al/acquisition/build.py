@@ -19,7 +19,8 @@ from graph_al.acquisition.config import (
     AcquisitionStrategyAdaptationConfig,
     AcquisitionStrategyEducatedRandomConfig,
     AcquisitionStrategyExpectedQueryConfig,
-    AcquisitionStrategyGEEMAttributeConfig
+    AcquisitionStrategyGEEMAttributeConfig,
+    AcquisitionStrategyTTAExpectedQueryScoreConfig
     
 )
 from graph_al.acquisition.prediction_attribute import AcquisitionStrategyByPredictionAttribute
@@ -50,6 +51,7 @@ from graph_al.acquisition.adaptation_risk import AcquisitionStrategyAdaptationRi
 from graph_al.acquisition.adaptation import AcquisitionStrategyAdaptation
 from graph_al.acquisition.educated_random import AcquisitionStrategyEducatedRandom
 from graph_al.acquisition.geem_attribute import AcquisitionStrategyGEEMAttribute
+from graph_al.acquisition.tta_expected_score import AcquisitionStrategyTTAExpectedQueryScore
 
 import torch
 
@@ -115,5 +117,7 @@ def get_acquisition_strategy(config: AcquisitionStrategyConfig, dataset: Dataset
             return AcquisitionStrategyExpectedQuery(config) # type: ignore
         case AcquisitionStrategyGEEMAttributeConfig.type_:
             return AcquisitionStrategyGEEMAttribute(config)
+        case AcquisitionStrategyTTAExpectedQueryScoreConfig.type_:
+            return AcquisitionStrategyTTAExpectedQueryScore(config)
         case _:
             raise ValueError(f'Unsupported acquisition strategy {config.type_}')
