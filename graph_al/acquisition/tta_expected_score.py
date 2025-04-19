@@ -53,12 +53,20 @@ class AcquisitionStrategyTTAExpectedQueryScore(AcquisitionStrategyByAttribute):
         
         proxy = self.embedded_strategy.get_attribute(prediction, model, dataset, generator, model_config)
         pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1)
+        cnt = torch.full_like(proxy, (self.num+1), dtype=torch.float)
+
         for i in range(self.num):
             prediction_tta = self.tta_predict_single(model, model_config, dataset, generator,pred_o)
-            
             score = self.embedded_strategy.get_attribute(prediction_tta, model, dataset, generator, model_config)
-            proxy += score
-            
+            if self.tta_filter:
+                pred = prediction_tta.get_probabilities(propagated=True).argmax(dim=-1)
+                mask = (pred != pred_o)[0]
+                score[mask] = 0
+                cnt[mask] -= 1
+            proxy += score 
+        proxy /= cnt   
+        if self.embedded_strategy.higher_is_better:
+            proxy = -proxy
         return proxy
     
     
@@ -82,14 +90,13 @@ class AcquisitionStrategyTTAExpectedQueryScore(AcquisitionStrategyByAttribute):
                 p_tmp.probabilities_unpropagated = p_tmp.get_probabilities(propagated=False)
             
             
-        if self.tta_filter:
-            pred = p_tmp.get_probabilities(propagated=True).argmax(dim=-1)
-            mask = pred != pred_o
-            self.filter_results.append(mask.sum().item())
-            p_tmp.logits[mask] = 0
-            p_tmp.probabilities[mask] = 0
-            p_tmp.logits_unpropagated[mask] = 0
-            p_tmp.probabilities_unpropagated[mask] = 0
+        # if self.tta_filter:
+        #     pred = p_tmp.get_probabilities(propagated=True).argmax(dim=-1)
+        #     mask = pred != pred_o
+        #     p_tmp.logits[mask] = 0
+        #     p_tmp.probabilities[mask] = 0
+        #     p_tmp.logits_unpropagated[mask] = 0
+        #     p_tmp.probabilities_unpropagated[mask] = 0
 
         return p_tmp
         

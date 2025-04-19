@@ -58,6 +58,7 @@ class BaseAcquisitionStrategy:
             self.tta = False
         if config.adaptation:
             self.adaptation = config.adaptation
+        self.mask_filter = []
 
     @property
     def retrain_after_each_acquisition(self) -> bool | None:
@@ -180,7 +181,7 @@ class BaseAcquisitionStrategy:
     def tta_predict(self, model, model_config,dataset, generator, num=100):
         
         prediction = model.predict(dataset.data, acquisition=True)
-        pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1)
+        pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1).cuda()
         if self.probs:
             prediction.probabilities = prediction.get_probabilities(propagated=True)
             prediction.probabilities_unpropagated = prediction.get_probabilities(propagated=False)
@@ -190,11 +191,14 @@ class BaseAcquisitionStrategy:
             data_clone = self.augment_data(dataset.data, generator)
             from graph_al.model.sgc import SGC
             if isinstance(model, SGC):
-                x = model.get_diffused_node_features(data_clone, cache= False).cpu().numpy()      
-                probs= torch.tensor(model.logistic_regression.predict_proba(x)).unsqueeze(0)
-                probs_unprop= torch.tensor(model.logistic_regression.predict_proba(data_clone.x.cpu().numpy())).unsqueeze(0)
-                logits = torch.tensor(model.logistic_regression.decision_function(x)).unsqueeze(0)
-                logits_unprop= torch.tensor(model.logistic_regression.decision_function(data_clone.x.cpu().numpy())).unsqueeze(0)
+
+                x = model.get_diffused_node_features(data_clone, cache= False)   
+                x = x.cuda()
+                data_clone.x = data_clone.x.cuda()
+                probs= model.predict_proba(x).unsqueeze(0)
+                probs_unprop= model.predict_proba(data_clone.x).unsqueeze(0)
+                logits = model.decision_function(x).unsqueeze(0)
+                logits_unprop= model.decision_function(data_clone.x).unsqueeze(0)
                 p_tmp = Prediction(probabilities=probs, probabilities_unpropagated=probs_unprop, logits=logits, logits_unpropagated=logits_unprop)
 
             else:

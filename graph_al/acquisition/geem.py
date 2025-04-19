@@ -48,7 +48,7 @@ class AcquisitionStrategyGraphExpectedErrorMinimization(BaseAcquisitionStrategy)
         probabilities = probabilities.mean(0) # ensemble average
         # For each node and potential label calculate the risk
         mask_predict_nodes = np.ones(dataset.num_nodes, dtype=bool)
-        mask_predict_nodes &= dataset.data.get_mask(DatasetSplit.TRAIN_POOL).numpy()
+        mask_predict_nodes &= dataset.data.get_mask(DatasetSplit.TRAIN_POOL).cpu().numpy()
         if self.subsample_pool is not None:
             idxs_predict_nodes = np.where(mask_predict_nodes)[0]
             np.random.shuffle(idxs_predict_nodes)
@@ -89,9 +89,9 @@ def compute_risk_job(jobs: List[Tuple[Tuple[int, int], int]], model: BaseModel, 
     assert isinstance(model, SGC), 'currently, we only support SGC for threaded GEEM'
 
     batch = dataset.data
-    mask_train = batch.get_mask(DatasetSplit.TRAIN).numpy()
-    x = model.get_diffused_node_features(batch).numpy()
-    y = dataset.data.y.numpy()
+    mask_train = batch.get_mask(DatasetSplit.TRAIN).cpu().numpy()
+    x = model.get_diffused_node_features(batch).cpu().numpy()
+    y = dataset.data.y.cpu().numpy()
 
     mask_risk = ~mask_train
     if compute_risk_on_subset is not None: # For efficiency reasons, compute the risk only on a subset

@@ -227,6 +227,7 @@ class Data(TorchGeometricData):
                 x = torch_scatter.scatter_add(messages, dst, dim=0, dim_size=x.size(0))
         if cache:
             setattr(self, key, x)
+        torch.cuda.empty_cache()
         return x
 
     @property

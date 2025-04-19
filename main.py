@@ -117,10 +117,11 @@ def main(config_dict: DictConfig) -> None:
         dataset.split(generator=generator, mask_not_in_val=mask_not_in_val(acquisition_strategy, initial_acquisition_strategy))
         for init_idx in range(config.model.num_inits):
             get_logger().info(f'Dataset split {split_idx}, Model initialization {init_idx}')
+            
+            
             acquisition_metrics_init = []
 
             model = get_model(config.model, dataset, generator)
-            
             
             acquisition_step = 0
             acquisition_results = []
@@ -137,6 +138,7 @@ def main(config_dict: DictConfig) -> None:
             result = train_model(config.model.trainer, model, dataset, generator, acquisition_step=0)
             result.acquired_idxs = initial_train_idxs.cpu()
             acquisition_results.append(result)
+            
             
             
             iterator = range(1, 1 + config.acquisition_strategy.num_steps)
@@ -194,7 +196,7 @@ def main(config_dict: DictConfig) -> None:
                    
                 # # TRAIN
                 result = train_model(config.model.trainer, model, dataset, generator, acquisition_step=acquisition_step)
-
+                
                 if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.TRAIN and config.acquisition_strategy.adaptation_enabled:
                     dataset = reset_dataset(dataset, dataset_original)
 
@@ -221,7 +223,7 @@ def main(config_dict: DictConfig) -> None:
                         'mask_test' : dataset.data.get_mask(DatasetSplit.TEST).cpu(),
                         'mask_train_pool' : dataset.data.get_mask(DatasetSplit.TRAIN_POOL).cpu()}, outdir / f'masks-{split_idx}-{init_idx}-{acquisition_step}.ckpt')
             torch.save(acquisition_metrics_init, outdir / f'acquisition_metrics-{split_idx}-{init_idx}-{acquisition_step}.pt')
-
+    torch.save(acquisition_strategy.mask_filter, outdir / f'mask_filter.pt')
     summary_metrics = evaluate_active_learning(config.evaluation, results)
     if config.print_summary:
         print_table(summary_metrics, title='Summary over all splits and initializations')

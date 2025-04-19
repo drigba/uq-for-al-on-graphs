@@ -106,50 +106,6 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
             
         return aleatoric_confidence
     
-    @jaxtyped(typechecker=typechecked)
-    def epistemic_uncertainty_rt(self, mask_predict: Bool[Tensor, ' n'], mask_train: Bool[Tensor, ' n'], 
-                                     total_confidence: Float[Tensor, 'n c'], model: BaseModel, 
-                                     dataset: Dataset, model_config: ModelConfig,
-                                     features_only: bool) -> Float[Tensor, 'n']:
-        """ Computes approximate epistemic uncertainty as the ratio aleatoric confidence / total confidence."""
-        idxs_train = torch.where(mask_train)[0]
-        
-        """ Do not sample aleatoric but use augmented dataset  """
-        # if self.aleatoric_confidence_labels_num_samples is None:
-        #     aleatoric_samples = total_confidence.argmax(1)[..., None]
-        # else:
-        #     aleatoric_samples = torch.multinomial(total_confidence, self.aleatoric_confidence_labels_num_samples, replacement=True)
-        
-        from copy import deepcopy
-        from torch_geometric.utils import to_dense_adj, dropout_edge, mask_feature
-        aleatoric_confidences = torch.zeros_like(total_confidence)
-        """SGC PROBLEM"""
-        for i in range(100):
-            data_clone = deepcopy(dataset.data)
-            data_clone.x, _ = mask_feature(data_clone.x, p=0.8, mode='col')
-            # data_clone.x = data_clone.x + torch.randn_like(data_clone.x) * 0.3
-            data_clone.edge_index, _ = dropout_edge(data_clone.edge_index, p=0.3)
-            x = model.get_diffused_node_features(data_clone, cache= False).cpu().numpy()
-            aleatoric_confidence = model.logistic_regression.predict_proba(x)/100
-            # p_tmp = model.predict(data_clone, acquisition=True)
-            # aleatoric_confidence = p_tmp.get_probabilities(propagated=True)[0]/100
-            aleatoric_confidences += aleatoric_confidence
-        total_confidences = total_confidence
-            
-
-        
-        epistemic_confidence = aleatoric_confidences / (total_confidences + 1e-12)
-        epistemic_uncertainties = 1 / (epistemic_confidence+1e-12)
-        epistemic_uncertainties = epistemic_confidence
-        epistemic_uncertainty = epistemic_uncertainties.mean(1)
-        
-        # epistemic_uncertainty = -torch.sum(epistemic_uncertainties * torch.log(epistemic_uncertainties + 1e-12), dim=1)
-        epistemic_uncertainty[~mask_predict] = -float('inf')
-
-        # epistemic_uncertainty = -epistemic_uncertainty
-        print('alea conf', torch.nanmean(aleatoric_confidences), aleatoric_confidences)
-        print('epi uncertainty', torch.nanmean(epistemic_uncertainty), epistemic_uncertainty)
-        return epistemic_uncertainty
     
     
     

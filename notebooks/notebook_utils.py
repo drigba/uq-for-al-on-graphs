@@ -5,13 +5,13 @@ import plotly.graph_objects as go
 import torch
 import numpy as np
 
-def load_results(dataset, model, strategies_names,save = False, cached = False, cache_path = None):
+def load_results(dataset, model, strategies_names,save = False, cached = False, cache_path = None, verbose = False):
     
     if cached and cache_path is not None:
         print("Loading cached metrics")
         if not os.path.exists(cache_path):
             raise ValueError(f"Cache path {cache_path} does not exist.")
-        metrics_path = os.path.join(cache_path, "metrics_dict.pt")
+        metrics_path = os.path.join(cache_path,f"{dataset}_{model}_metrics_dict.pt")
         metrics_dict = torch.load(metrics_path)
         return metrics_dict
     
@@ -30,7 +30,8 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
             for run in os.listdir(path):
                 if os.path.exists(os.path.join(path, run, "acquisition_curve_metrics.pt")):
                     metrics_path = os.path.join(path, run, "acquisition_curve_metrics.pt")
-                    print(metrics_path)
+                    if verbose:
+                        print(metrics_path)
                     metrics = torch.load(metrics_path, weights_only=True)
                     accuracy = np.array(metrics["accuracy/test"])*100
                     accuracy_mean, accuracy_std = np.mean(accuracy, axis=0), np.std(accuracy, axis=0)
@@ -39,7 +40,7 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
         print("Saving metrics to cache")
         if not os.path.exists(cache_path):
             os.makedirs(cache_path)
-        torch.save(metrics_dict, os.path.join(cache_path, "metrics_dict.pt"))
+        torch.save(metrics_dict, os.path.join(cache_path,f"{dataset}_{model}_metrics_dict.pt"))
     return metrics_dict
 
 
@@ -143,15 +144,16 @@ def generate_prompt_adaptation(dataset,model,strategy,adaptation_config:Adaptati
     return s,p
 
 
-def generate_prompt_tta(dataset,model,strategy,strat_node, strat_edge,num, filter,probs,scale, seed, p_node = "none", p_edge = "none"):
+def generate_prompt_tta(dataset,model,strategy,strat_node, strat_edge,num, filter,probs,scale, seed, p_node = "none", p_edge = "none", n_splits = 5, n_inits = 5):
     f = "filter" if filter else "nofilter"
     pl = "probs" if probs else "logits"
+    seed_text = ("_" + str(seed)) if int(seed) != 42 else "" 
     node_prob = f"acquisition_strategy.tta.p_node={p_node}" if p_node != "none" else ""
     edge_prob = f"acquisition_strategy.tta.p_edge={p_edge}" if p_edge != "none" else ""
     s = (
         f"nohup python main.py model={model} data={dataset} "
-        f"acquisition_strategy={strategy} data.num_splits=5 "
-        f"model.num_inits=5 print_summary=True "
+        f"acquisition_strategy={strategy} data.num_splits={n_splits} "
+        f"model.num_inits={n_inits} print_summary=True "
         f"model.cached=False "
         f"seed={seed} "
         f"acquisition_strategy.adaptation_enabled=False "
@@ -164,8 +166,8 @@ def generate_prompt_tta(dataset,model,strategy,strat_node, strat_edge,num, filte
         f"{edge_prob} "
         f"acquisition_strategy.tta.filter={filter} "
         f"acquisition_strategy.tta.probs={probs} "
-        f"wandb.name=f{strat_node}_e{strat_edge}_{num}_{f}_{pl}_{p_node}_{p_edge} "
-        f"> logs_new/{dataset}_{model}_{strategy}_tta_f{strat_node}_e{strat_edge}_{num}_{f}_{pl}_{p_node}_{p_edge}.log &"
+        f"wandb.name=f{strat_node}_e{strat_edge}_{num}_{f}_{pl}_{p_node}_{p_edge}{seed_text} "
+        f"> logs_new/{dataset}_{model}_{strategy}_tta_f{strat_node}_e{strat_edge}_{num}_{f}_{pl}_{p_node}_{p_edge}{seed_text}.log &"
     )
     return s
 
@@ -186,11 +188,12 @@ def augmentation_name(x):
 
 
 # AGGREGATE GEEM METRICS
-def combine_geem_metrics(dataset):
+def combine_geem_metrics(dataset, prefix =None):
     metrics = []
     seed_path = os.path.join("..","output2/runs", dataset, "sgc", "geem")
+    filter_fn = lambda x: x.startswith(prefix) if prefix is not None else (len(x.split("_")) == 1)
     for seed in os.listdir(seed_path):
-        if seed != "None":
+        if (seed != "None") and filter_fn(seed):
             run_path = os.path.join(seed_path, seed)
             for run_dir in os.listdir(run_path):
                 if run_dir != "hydra-outputs" and os.path.exists(os.path.join(run_path, run_dir, "acquisition_curve_metrics.pt")):
@@ -200,10 +203,51 @@ def combine_geem_metrics(dataset):
     aggregated_metrics = {k:np.array([m[k][0] for m in metrics]) if k != "acquired_idxs" else [m[k][0] for m in metrics]  for k in metrics[0].keys()}
     return aggregated_metrics
     
-def aggregate_geem_metrics(dataset):
-    metrics = combine_geem_metrics(dataset)
+def aggregate_geem_metrics(dataset, prefix = None):
+    metrics = combine_geem_metrics(dataset, prefix)
     metrics["accuracy/test"] *=100
     mean_metrics = {k:np.mean(v, axis=0) if k != "acquired_idxs" else v for k,v in metrics.items()}
     std_metrics = {k:np.std(v, axis=0) if k != "acquired_idxs" else v for k,v in metrics.items()}
     return mean_metrics, std_metrics
 
+
+def index_function(l):
+    match l:
+        case 28:
+            return [0,5,10,15,20,28]
+        case 24:
+            return [0,5,10,15,20,24]
+        case 12:
+            return [0,3,5,7,10,12]
+        case 32:
+            return [0,5,10,15,20,25,32]
+        case _:
+            raise ValueError(f"Unknown length: {l}")
+
+def create_df(metrics_dict):
+    acs =  {k:v[0]for k,v in metrics_dict.items()}
+    df = pd.DataFrame(acs)
+    index_list = index_function(len(df)-1)
+    df_mean = df.transpose()[index_list]
+    stds = {k:v[1]for k,v in metrics_dict.items()}
+    df_std = pd.DataFrame(stds).transpose()[index_list]
+    df_combined = df_mean.join(df_std, lsuffix="_mean", rsuffix="_std").sort_index(axis=0)
+
+    mean_cols = [str(i) + "_mean" for i in index_list]
+    std_cols = [str(i) + "_std" for i in index_list]
+
+    for mean_col, std_col in zip(mean_cols, std_cols):
+        df_combined[mean_col + "_formatted"] = (df_combined[mean_col]).round(1).astype(str) + " ± " + (df_combined[std_col]).round(1).astype(str)
+    df_combined.sort_values(by=f"{index_list[-1]}_mean", ascending=False,inplace=True)
+    df_sum = (df.iloc[5:].sum(axis=0) / df.iloc[5:].sum(axis=0).max()).sort_values(ascending=False).to_frame(name="nalc")*100
+    df_combined = df_combined.join(df_sum)
+    return df_combined, df
+
+def plot_diff(df_to_plot,s = ["age", "anrmab", "entropy", "aleatoric_propagated"] ,o="None", n = "fmask_emask_200_filter_probs_0.5_0.4"):
+    
+    d = [strategy + "_diff" for strategy in s]
+    for strategy in s:
+        df_to_plot[strategy + "_diff"] = df_to_plot[strategy + "_" +  n] - df_to_plot[strategy+ "_" + o]
+    df_to_plot[d].plot(figsize=(20,10))
+    plt.axhline(y=0, color='r', linestyle='--', linewidth=1)
+    plt.show()

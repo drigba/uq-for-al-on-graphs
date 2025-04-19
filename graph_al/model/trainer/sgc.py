@@ -13,6 +13,8 @@ from graph_al.model.trainer.config import SGCTrainerConfig
 from graph_al.model.trainer.base import BaseTrainer
 from graph_al.evaluation.result import Result
 from graph_al.evaluation.config import MetricTemplate
+from graph_al.model.base import BaseModel
+
 
 class SGCTrainer(BaseTrainer):
 
@@ -25,6 +27,16 @@ class SGCTrainer(BaseTrainer):
         for split in which:
             metrics[MetricTemplate(name=MetricName.LOSS, dataset_split=split)] = float('nan')
         return metrics
+    
+    def transfer_dataset_to_device(self, dataset: Dataset) -> Dataset:
+        if torch.cuda.is_available():
+            dataset = dataset.cuda()
+        return dataset
+    
+    def transfer_model_to_device(self, model: BaseModel) -> BaseModel:
+        if torch.cuda.is_available():
+            model = model.cuda()
+        return model
 
     @typechecked
     def fit(self, model: SGC, dataset: Dataset, generator: torch.Generator, acquisition_step: int):
@@ -39,6 +51,8 @@ class SGCTrainer(BaseTrainer):
         Returns:
             Result: Metrics, etc. for this model fit
         """
+        model, dataset = self.transfer_model_to_device(model), self.transfer_dataset_to_device(dataset)
+
         batch: Data = dataset.data
         mask_train = batch.get_mask(DatasetSplit.TRAIN)
 
@@ -51,5 +65,5 @@ class SGCTrainer(BaseTrainer):
             model.freeze_predictions(labels_in_mask_train[0].item())
         else:
             model.unfreeze_predictions()
-            model.logistic_regression.fit(x.numpy(), batch.y[mask_train].numpy())
+            model.logistic_regression.fit(x.cpu().numpy(), batch.y[mask_train].cpu().numpy())
             

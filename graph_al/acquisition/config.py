@@ -336,4 +336,4 @@ cs.store(name="base_badge", node=AcquisitionStrategyBadgeConfig, group='initial_
 cs.store(name="base_geem", node=AcquisitionStrategyGEEMConfig, group='acquisition_strategy.embedded_strategy')
 cs.store(name="base_geem_attribute", node=AcquisitionStrategyGEEMAttributeConfig, group='acquisition_strategy.embedded_strategy')
 cs.store(name="acquire_by_prediction_attribute", node=AcquireByPredictionAttributeConfig, group='acquisition_strategy.embedded_strategy')
-
+cs.store(name="entropy", node=AcquireByPredictionAttributeConfig, group='acquisition_strategy.embedded_strategy')
