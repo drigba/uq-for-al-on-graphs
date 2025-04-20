@@ -16,14 +16,13 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
         return metrics_dict
     
     prefix = f"../output2/runs/{dataset}/{model}/"
-    # strategies_names = ['aleatoric_propagated', "educated_random", "augment_latent"]
-    # strategies_names = [ "educated_random"]
+
 
     strategies_paths = [os.path.join(prefix, strategy) for strategy in strategies_names]
     metrics_dict = {}
-    # plt.figure(figsize=(20,10))
-    print("Loading metrics")
+    print(f"Loading metrics {dataset} {model}")
     for ix,strategies_path in enumerate(strategies_paths):
+        print(f"\t{strategies_names[ix]} metrics")
         strategies = os.listdir(strategies_path)
         for strategy in strategies:
             path = os.path.join(strategies_path, strategy)
@@ -171,6 +170,57 @@ def generate_prompt_tta(dataset,model,strategy,strat_node, strat_edge,num, filte
     )
     return s
 
+def generate_prompt_educated_random_by_pred_attribute_notta(dataset, model, strategy, top_percent, low_percent, seed=42):
+    strategies = {
+        "aleatoric_propagated": ("false", "MAX_SCORE"),
+        "MAX_SCORE": ("false", "MAX_SCORE"),
+        "entropy": ("true", "ENTROPY"),
+        "ENTROPY": ("true", "ENTROPY"),
+    }
+    if strategy not in strategies:
+        raise ValueError(f"Unknown strategy: {strategy}")
+    
+    hb, strat = strategies[strategy]
+    seed_text = f"_{seed}" if seed != 42 else ""
+    
+    return (
+        f"nohup python main.py model={model} data={dataset} acquisition_strategy=educated_random "
+        f"data.num_splits=5 model.num_inits=5 print_summary=True model.cached=True seed={seed} "
+        f"acquisition_strategy.adaptation_enabled=False "
+        f"acquisition_strategy.scale=1 "
+        f"acquisition_strategy.tta_enabled=False "
+        f"acquisition_strategy.top_percent={top_percent} acquisition_strategy.low_percent={low_percent} "
+        f"+acquisition_strategy.embedded_strategy=acquire_by_prediction_attribute "
+        f"+acquisition_strategy.embedded_strategy.higher_is_better={hb} "
+        f"+acquisition_strategy.embedded_strategy.attribute={strat} "
+        f"+acquisition_strategy.embedded_strategy.propagated=True "
+        f"wandb.name={strategy}_{top_percent}_{low_percent}{seed_text} > "
+        f"logs_new/{dataset}_{model}_educated_random_{strategy}_{top_percent}_{low_percent}{seed_text}.log &"
+    )
+
+
+def generate_prompt_educated_random_alea_prop(top_percent, low_percent, dataset, model, seed):
+   s = (f"nohup python main.py model={model} data={dataset} acquisition_strategy=educated_random "
+        f"data.num_splits=5 model.num_inits=5 print_summary=True "
+        f"model.cached=False seed={seed} acquisition_strategy.adaptation_enabled=False "
+        f"acquisition_strategy.scale=1 "
+        f"acquisition_strategy.tta_enabled=True "
+        f"acquisition_strategy.tta.strat_node=mask "
+        f"acquisition_strategy.tta.strat_edge=mask "
+        f"acquisition_strategy.tta.num=100 "
+        f"acquisition_strategy.tta.p_node=0.5 "
+        f"acquisition_strategy.tta.p_edge=0.4 "
+        f"acquisition_strategy.tta.filter=True "
+        f"acquisition_strategy.tta.probs=True "
+        f"acquisition_strategy.top_percent={top_percent} acquisition_strategy.low_percent={low_percent}  "
+        f"+acquisition_strategy.embedded_strategy=acquire_by_prediction_attribute "
+        f"+acquisition_strategy.embedded_strategy.higher_is_better=false "
+        f"+acquisition_strategy.embedded_strategy.attribute=MAX_SCORE "
+        f"+acquisition_strategy.embedded_strategy.propagated=True "
+        f"wandb.name=aleatoric_propagated_fmask_emask_100_filter_probs_0.5_0.4_{top_percent}_{low_percent} "
+        f"> logs_new/{dataset}_{model}_educated_random_aleatoric_propagated_fmask_emask_100_filter_probs_0.5_0.4_{top_percent}_{low_percent}.log &")
+   return s
+
 
 def augmentation_name(x):
     if x == "fmask":
@@ -185,7 +235,12 @@ def augmentation_name(x):
         return "Feature Noise & Edge Mask"
     return None
 
-
+def get_count_dict(t):
+    ixs = torch.tensor([l[1:] for l in t["acquired_idxs"]]).flatten()
+    count = torch.bincount(ixs)
+    keys = torch.where(count)
+    count_dict = {k.item():count[k].item() for k in keys[0]}
+    return count_dict, count,ixs
 
 # AGGREGATE GEEM METRICS
 def combine_geem_metrics(dataset, prefix =None):
@@ -251,3 +306,14 @@ def plot_diff(df_to_plot,s = ["age", "anrmab", "entropy", "aleatoric_propagated"
     df_to_plot[d].plot(figsize=(20,10))
     plt.axhline(y=0, color='r', linestyle='--', linewidth=1)
     plt.show()
+    
+def process_tta(df):
+    df["num"] = df.index.map(lambda x: x.split("_")[4]).astype(int)
+    df["p_e"] = df.index.map(lambda x: x.split("_")[-1])
+    df["p_e"] = df["p_e"].replace("none", np.nan).astype(float)
+    df["p_f"] = df.index.map(lambda x: x.split("_")[-2])
+    df["p_f"] = df["p_f"].replace("none", np.nan).astype(float)
+    df["m_f"] = df.index.map(lambda x: x.split("_")[2][1:])
+    df["m_e"] = df.index.map(lambda x: x.split("_")[3][1:])
+    df["filter"] = df.index.map(lambda x:  x.split("_")[5])
+    return df
