@@ -18,7 +18,7 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
     prefix = f"../output2/runs/{dataset}/{model}/"
 
 
-    strategies_paths = [os.path.join(prefix, strategy) for strategy in strategies_names]
+    strategies_paths = [os.path.join(prefix, strategy) for strategy in strategies_names if os.path.exists(os.path.join(prefix, strategy))]
     metrics_dict = {}
     print(f"Loading metrics {dataset} {model}")
     for ix,strategies_path in enumerate(strategies_paths):
@@ -235,9 +235,10 @@ def augmentation_name(x):
         return "Feature Noise & Edge Mask"
     return None
 
-def get_count_dict(t):
+
+def get_count_dict(t, num_nodes = 2810):
     ixs = torch.tensor([l[1:] for l in t["acquired_idxs"]]).flatten()
-    count = torch.bincount(ixs)
+    count = torch.bincount(ixs, minlength=num_nodes)
     keys = torch.where(count)
     count_dict = {k.item():count[k].item() for k in keys[0]}
     return count_dict, count,ixs
@@ -308,12 +309,35 @@ def plot_diff(df_to_plot,s = ["age", "anrmab", "entropy", "aleatoric_propagated"
     plt.show()
     
 def process_tta(df):
-    df["num"] = df.index.map(lambda x: x.split("_")[4]).astype(int)
+    df["num"] = df.index.map(lambda x: x.split("_")[-5]).astype(int)
     df["p_e"] = df.index.map(lambda x: x.split("_")[-1])
     df["p_e"] = df["p_e"].replace("none", np.nan).astype(float)
     df["p_f"] = df.index.map(lambda x: x.split("_")[-2])
     df["p_f"] = df["p_f"].replace("none", np.nan).astype(float)
-    df["m_f"] = df.index.map(lambda x: x.split("_")[2][1:])
-    df["m_e"] = df.index.map(lambda x: x.split("_")[3][1:])
-    df["filter"] = df.index.map(lambda x:  x.split("_")[5])
+    df["m_f"] = df.index.map(lambda x: x.split("_")[-7][1:])
+    df["m_e"] = df.index.map(lambda x: x.split("_")[-6][1:])
+    df["filter"] = df.index.map(lambda x:  x.split("_")[-4])
     return df
+
+
+def name_fn(x):
+    tta = (" " + x["tta"]) if x["tta"] != "NO" else ""
+    filtered = " Filtered" if x["filter"] else ""
+    adapted = " Adapted" if x["adapted"] else ""
+    return f"{x['strategy']}{tta}{filtered}{adapted} {x['model']}"   
+     
+def get_count_dict(t, num_nodes = 2810):
+    ixs = torch.tensor([l[1:] for l in t["acquired_idxs"]]).flatten()
+    count = torch.bincount(ixs, minlength=num_nodes)
+    keys = torch.where(count)
+    count_dict = {k.item():count[k].item() for k in keys[0]}
+    return count_dict, count,ixs
+
+def get_count_dict_binned_stats(t, num_nodes = 2810, num_acquired = 28):
+    reshaped_ixs = get_count_dict(t,num_nodes)[2].view(5,5,-1)
+    reshaped_ixs.shape
+    reshaped_bin_count_split = torch.stack([torch.bincount(reshaped_ixs[i].flatten(), minlength=2810) for i in range(reshaped_ixs.shape[0])])
+    reshaped_bin_count_init = torch.stack([torch.bincount(reshaped_ixs[:,i,:].flatten(), minlength=2810) for i in range(reshaped_ixs.shape[1])])
+    by_split =((reshaped_bin_count_split > 0).sum()).item()/(5*5*num_acquired)
+    by_init = ((reshaped_bin_count_init > 0).sum()).item()/(5*5*num_acquired)
+    return by_split, by_init

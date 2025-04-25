@@ -208,6 +208,7 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
         # We simplify the computation of epistemic uncertainty up to a constant factor using
         # equation (28) in our paper, (see appendix G.2)
         for i, c in tqdm(list(itertools.product(torch.where(mask_predict)[0], range(batch.num_classes))), disable=not self.verbose):
+
             label_i_true, labels_np[i], mask_train_np[i] = batch.y[i], c, True
             # compute the log probability p(y_u-i = y_u-i^label | y_O, y_i=c)
             
@@ -218,6 +219,7 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
             joint_log_probs[i, c] += np.log(total_confidence_np[i, int(labels_np[i])])
             labels_np[i], mask_train_np[i] = label_i_true, False
 
+        joint_log_probs = joint_log_probs.cpu()
         # Now we take the expectation over the label for y_i = c weighted by the total confidence
         expected_ratios = joint_log_probs + np.log(total_confidence_np)
         expected_ratios = scipy.special.logsumexp(expected_ratios, axis=-1)

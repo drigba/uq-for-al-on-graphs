@@ -31,7 +31,7 @@ class AcquisitionStrategyByAttribute(BaseAcquisitionStrategy):
         attribute = self.get_attribute(prediction, model, dataset, generator, model_config)
         if self.higher_is_better:
             attribute = -attribute
-        idx_pool = torch.where(self.pool(mask_acquired, model, dataset, generator))[0]
+        idx_pool = torch.where(self.pool(mask_acquired, model, dataset, generator))[0].to(attribute.device)
         if idx_pool.size(0) == 0:
             get_logger().warn(f'Trying to acquire label, but only none are in the pool.')
         attribute_pool = attribute[idx_pool]
