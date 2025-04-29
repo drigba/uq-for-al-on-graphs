@@ -54,6 +54,10 @@ class GCN(BaseModelMonteCarloDropout):
             if edge_index is None:
                 x = layer.lin(x) # type: ignore
             else:   
+                # print(f"edge_index: {edge_index.device}")
+                # if edge_weight is not None:
+                #     print(f"edge_weight: {edge_weight.device}")
+                # print(f"x: {x.device}")
                 x = layer(x, edge_index, edge_weight)
             if acquisition and _layer_idx == len(self.layers) - 2: # only return an embedding when doing acquisition
                 embedding = x

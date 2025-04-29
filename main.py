@@ -99,9 +99,7 @@ def main(config_dict: DictConfig) -> None:
         num_splits = 1
 
     
-    from copy import deepcopy
-    dataset_original = deepcopy(dataset)
-    dataset_original.data = dataset_original.data.to(dataset.data.x.device)
+    
 
     results = []
     if config.acquisition_strategy.adaptation_enabled is None and config.acquisition_strategy.adaptation is not None:
@@ -113,11 +111,13 @@ def main(config_dict: DictConfig) -> None:
         config.acquisition_strategy.tta_enabled = True
         
     for split_idx in range(num_splits):
-        dataset = deepcopy(dataset_original)
+        
+        from copy import deepcopy
+        
+        
         dataset.split(generator=generator, mask_not_in_val=mask_not_in_val(acquisition_strategy, initial_acquisition_strategy))
         for init_idx in range(config.model.num_inits):
             get_logger().info(f'Dataset split {split_idx}, Model initialization {init_idx}')
-            
             
             acquisition_metrics_init = []
 
@@ -147,6 +147,10 @@ def main(config_dict: DictConfig) -> None:
                 iterator = tqdm.tqdm(iterator)
 
             acquisition_strategy.reset()
+            
+            dataset_original = deepcopy(dataset)
+            dataset_original.data = dataset_original.data.to(dataset.data.x.device)
+            
             for acquisition_step in iterator:
                 model = model.eval()
                 if dataset.data.mask_train_pool.sum().item() <= 0:
@@ -154,6 +158,7 @@ def main(config_dict: DictConfig) -> None:
                     break
                 print()
                 #################################################################
+                
                 if config.acquisition_strategy.adaptation_enabled:
                     match config.acquisition_strategy.adaptation.mode:
                         case AdaptationMode.FEATURE:
@@ -161,7 +166,7 @@ def main(config_dict: DictConfig) -> None:
                             with torch.enable_grad():
                                 new_feat, _ = agent.learn_graph(dataset)
                             dataset.data.x = dataset.data.x + new_feat
-                            dataset.data.x = deepcopy(dataset.data.x.detach())
+                            dataset.data.x = deepcopy(dataset.data.x.detach()).to(dataset_original.data.x.device)
                         case AdaptationMode.STRUCTURE:
                             agent = EdgeAgent(dataset,model, config.acquisition_strategy.adaptation)
                             with torch.enable_grad():
@@ -173,15 +178,13 @@ def main(config_dict: DictConfig) -> None:
                                 new_feat, new_edge, new_edge_weight = agent.learn_graph(dataset)
                             dataset.data.edge_index = new_edge
                             dataset.data.x = dataset.data.x + new_feat
-                            dataset.data.x = deepcopy(dataset.data.x.detach())
+                            dataset.data.x = deepcopy(dataset.data.x.detach()).to(dataset_original.data.x.device)
                         case _:
                             raise ValueError(f"Unknown adaptation mode: {config.acquisition_strategy.adaptation.mode}")
                             
                 #################################################################
-                
                 if config.acquisition_strategy.adaptation.integration == AdaptationIntegration.NONE and config.acquisition_strategy.adaptation_enabled:
                     dataset = reset_dataset(dataset, dataset_original)
-                    
                 with torch.no_grad():
                     acquired_idxs, acquisition_metrics = acquisition_strategy.acquire(model, dataset, config.acquisition_strategy.num_to_acquire_per_step, config.model, generator)
                 acquisition_metrics_init.append(acquisition_metrics)
@@ -223,11 +226,13 @@ def main(config_dict: DictConfig) -> None:
                         'mask_test' : dataset.data.get_mask(DatasetSplit.TEST).cpu(),
                         'mask_train_pool' : dataset.data.get_mask(DatasetSplit.TRAIN_POOL).cpu()}, outdir / f'masks-{split_idx}-{init_idx}-{acquisition_step}.ckpt')
             torch.save(acquisition_metrics_init, outdir / f'acquisition_metrics-{split_idx}-{init_idx}-{acquisition_step}.pt')
-    torch.save(acquisition_strategy.mask_filter, outdir / f'mask_filter.pt')
     summary_metrics = evaluate_active_learning(config.evaluation, results)
     if config.print_summary:
         print_table(summary_metrics, title='Summary over all splits and initializations')
     save_results(results, outdir)
+    torch.save(acquisition_strategy.probs_list, "other_data/probs/probs_list_2.pt")
+    torch.save(acquisition_strategy.probs_o_list, "other_data/probs/probs_o_list_2.pt")
+    torch.save(acquisition_strategy.probs_filtered_list, "other_data/probs/probs_filtered_list_2.pt")
     
     if wandb.run is not None:  
         wandb.run.log({}) # Ensures a final commit to the wandb server

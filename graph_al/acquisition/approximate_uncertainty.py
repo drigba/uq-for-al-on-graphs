@@ -82,6 +82,7 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
         # replace the ground truth in labels when it is available
         labels[mask_train] = batch.y[mask_train]
         labels_np = labels.cpu().numpy()
+        mask_train_np = mask_train.cpu().numpy()
         if features_only:
             x = batch.x.cpu().numpy()
         else:
@@ -92,7 +93,7 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
             # compute aleatoric confidence from one model trained on leaving out a node for each node
             iterator = tqdm( torch.where(mask_predict)[0]) if self.verbose else torch.where(mask_predict)[0]
             for idx in iterator:
-                mask_aleatoric = np.ones_like(mask_train)
+                mask_aleatoric = np.ones_like(mask_train_np)
                 mask_aleatoric[idx] = False
                 aleatoric_confidence_idx = _probabilities_from_logistic_regression(x, 
                                                                         labels_np, mask_aleatoric, model, batch.num_classes)
@@ -100,9 +101,11 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
         else:
             # use one base model for aleatoric confidence, cheaper
             idxs = torch.where(mask_predict)[0]
-            aleatoric_confidence[idxs] = torch.from_numpy(_probabilities_from_logistic_regression(x, 
-                                                                        labels_np, np.ones_like(mask_train), 
-                                                                        model, batch.num_classes)[idxs, labels[idxs]]).type(torch.float32)
+            probs_tmp = _probabilities_from_logistic_regression(x, 
+                                                                        labels_np, np.ones_like(mask_train_np), 
+                                                                        model, batch.num_classes)
+            labels_np = labels.cpu().numpy()
+            aleatoric_confidence[idxs] = torch.from_numpy(probs_tmp[idxs, labels_np[idxs]]).type(torch.float32)
             
         return aleatoric_confidence
     
@@ -128,9 +131,8 @@ class AcquisitionStrategyApproximateUncertainty(AcquisitionStrategyByAttribute):
             self.aleatoric_confidence(mask_predict, mask_train, aleatoric_samples[:, i], model, dataset, model_config,
                                       features_only) 
             for i in range(aleatoric_samples.size(1))], dim=0)
+        aleatoric_confidences = aleatoric_confidences.to(total_confidence.device)
         total_confidences = total_confidence[torch.arange(total_confidence.size(0)), aleatoric_samples.T]
-        
-        # print(total_confidence.size(), aleatoric_confidences.size())
         
         epistemic_uncertainties = aleatoric_confidences / (total_confidences + 1e-12)
         epistemic_uncertainty = epistemic_uncertainties.mean(0)

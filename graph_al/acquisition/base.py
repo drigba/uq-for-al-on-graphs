@@ -35,6 +35,9 @@ class BaseAcquisitionStrategy:
         self.requires_model_prediction = config.requires_model_prediction
         self.verbose = config.verbose
         self.scale = config.scale
+        self.probs_list = []
+        self.probs_o_list = []
+        self.probs_filtered_list = []
         if config.tta_enabled:
             print("TTA ENABLED")
             self.tta = True
@@ -58,7 +61,6 @@ class BaseAcquisitionStrategy:
             self.tta = False
         if config.adaptation:
             self.adaptation = config.adaptation
-        self.mask_filter = []
 
     @property
     def retrain_after_each_acquisition(self) -> bool | None:
@@ -181,6 +183,10 @@ class BaseAcquisitionStrategy:
     def tta_predict(self, model, model_config,dataset, generator, num=100):
         
         prediction = model.predict(dataset.data, acquisition=True)
+        
+        self.probs_o_list.append(prediction.get_probabilities(propagated=True).detach().cpu())
+        pred_comm = torch.zeros_like(prediction.get_probabilities(propagated=True)).cuda()
+        
         pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1).cuda()
         if self.probs:
             prediction.probabilities = prediction.get_probabilities(propagated=True)
@@ -207,7 +213,7 @@ class BaseAcquisitionStrategy:
                     p_tmp.probabilities = p_tmp.get_probabilities(propagated=True)
                     p_tmp.probabilities_unpropagated = p_tmp.get_probabilities(propagated=False)
                 
-                
+            pred_comm += p_tmp.get_probabilities(propagated=True)
             if self.tta_filter:
                 pred = p_tmp.get_probabilities(propagated=True).argmax(dim=-1)
                 mask = pred != pred_o
@@ -219,10 +225,10 @@ class BaseAcquisitionStrategy:
                 #     mask = pred != pred_o
                 
                 # Soft filter
-                # probs = p_tmp.get_probabilities(propagated=True).max(dim=-1)[0]
-                # mask = torch.bernoulli(1 - probs).to(torch.bool)
+                # probs = probs_o[0][torch.arange(probs_o.size(1)),pred[0]]
+                # mask = torch.bernoulli(1 - probs).to(torch.bool).unsqueeze(0)
                 # mask[pred == pred_o] = False
-                
+
                 p_tmp.logits[mask] = 0
                 p_tmp.probabilities[mask] = 0
                 p_tmp.logits_unpropagated[mask] = 0
@@ -241,7 +247,10 @@ class BaseAcquisitionStrategy:
                 prediction.probabilities_unpropagated /= cnt.unsqueeze(-1)
             prediction.logits /= cnt.unsqueeze(-1)
             prediction.logits_unpropagated /= cnt.unsqueeze(-1)
-        
+            
+        self.probs_list.append(prediction.get_probabilities(propagated=True).detach().cpu())
+        self.probs_filtered_list.append(pred_comm.detach().cpu())
+
         return prediction
         
     def drop_feature_weighted_2(self,x, w, p: float, threshold: float = 0.7):
