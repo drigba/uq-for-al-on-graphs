@@ -37,6 +37,7 @@ class BaseAcquisitionStrategy:
         self.scale = config.scale
         self.probs_list = []
         self.probs_o_list = []
+        self.probs_unfiltered_list = []
         self.probs_filtered_list = []
         if config.tta_enabled:
             print("TTA ENABLED")
@@ -186,6 +187,7 @@ class BaseAcquisitionStrategy:
         
         self.probs_o_list.append(prediction.get_probabilities(propagated=True).detach().cpu())
         pred_comm = torch.zeros_like(prediction.get_probabilities(propagated=True)).cuda()
+        pred_comm_filtered = torch.zeros_like(prediction.get_probabilities(propagated=True)).cuda()
         
         pred_o = prediction.get_probabilities(propagated=True).argmax(dim=-1).cuda()
         if self.probs:
@@ -217,23 +219,12 @@ class BaseAcquisitionStrategy:
             if self.tta_filter:
                 pred = p_tmp.get_probabilities(propagated=True).argmax(dim=-1)
                 mask = pred != pred_o
-                # train_mask = dataset.data.get_mask(DatasetSplit.TRAIN)
-                # if (pred[0][train_mask] != dataset.data.y[train_mask]).any():
-                #     mask = torch.ones_like(pred_o).to(torch.bool)
-                # else:
-                #     # mask = torch.zeros_like(pred_o).to(torch.bool)
-                #     mask = pred != pred_o
-                
-                # Soft filter
-                # probs = probs_o[0][torch.arange(probs_o.size(1)),pred[0]]
-                # mask = torch.bernoulli(1 - probs).to(torch.bool).unsqueeze(0)
-                # mask[pred == pred_o] = False
-
                 p_tmp.logits[mask] = 0
                 p_tmp.probabilities[mask] = 0
                 p_tmp.logits_unpropagated[mask] = 0
                 p_tmp.probabilities_unpropagated[mask] = 0
                 cnt[mask] -= 1
+            pred_comm_filtered += p_tmp.get_probabilities(propagated=True)
             
             if self.probs:
                 prediction.probabilities += p_tmp.get_probabilities(propagated=True)
@@ -248,8 +239,10 @@ class BaseAcquisitionStrategy:
             prediction.logits /= cnt.unsqueeze(-1)
             prediction.logits_unpropagated /= cnt.unsqueeze(-1)
             
-        self.probs_list.append(prediction.get_probabilities(propagated=True).detach().cpu())
-        self.probs_filtered_list.append(pred_comm.detach().cpu())
+        # pred_comm_filtered /= (cnt.unsqueeze(-1)-1)
+        # self.probs_list.append(prediction.get_probabilities(propagated=True).detach().cpu())
+        # self.probs_unfiltered_list.append(pred_comm.detach().cpu())
+        # self.probs_filtered_list.append(pred_comm_filtered.detach().cpu())
 
         return prediction
         

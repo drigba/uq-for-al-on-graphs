@@ -42,6 +42,21 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
         torch.save(metrics_dict, os.path.join(cache_path,f"{dataset}_{model}_metrics_dict.pt"))
     return metrics_dict
 
+def create_tta_pivots(tta_df,acc_col):
+    tta_df_mask = tta_df[(tta_df["m_f"] == "mask") & (tta_df["num"] == 100)]
+    tta_df_mask_pivot = tta_df_mask.pivot(index="p_f", columns="p_e", values=acc_col)
+    tta_df_mask_pivot.sort_index(axis=0, ascending=False, inplace=True)
+    
+    tta_df_noise = tta_df[(tta_df["m_f"] == "noise") & (tta_df["num"] == 100)]
+    tta_df_noise_pivot = tta_df_noise.pivot(index="p_f", columns="p_e", values=acc_col)
+    tta_df_noise_pivot.sort_index(axis=0, ascending=False, inplace=True)
+    
+    vmin = min(tta_df_mask_pivot.min().min(), tta_df_noise_pivot.min().min())
+    vmax = max(tta_df_mask_pivot.max().max(), tta_df_noise_pivot.max().max())
+    
+    return tta_df_mask_pivot, tta_df_noise_pivot, vmin, vmax
+
+
 
 def update_progress(df, path):
     for dataset in os.listdir(path):
@@ -86,7 +101,9 @@ def generate_prompt(dataset, model, strategy):
         f"nohup python main.py model={model} data={dataset} "
         f"acquisition_strategy={strategy} data.num_splits=5 "
         f"model.num_inits=5 print_summary=True "
-        f"acquisition_strategy.tta=null > logs_new/{dataset}_{model}_{strategy}.log &"
+        f"model.cached=True "
+        f"acquisition_strategy.adaptation_enabled=False "
+        f"acquisition_strategy.tta_enabled=False > logs_new/{dataset}_{model}_{strategy}.log &"
     )
     return s
 
@@ -95,7 +112,6 @@ def generate_prompt_geem(dataset, model, strategy, seed):
     s = (
         f"nohup python main.py model={model} data={dataset} "
         f"acquisition_strategy={strategy} data.num_splits=1 "
-        f"acquisition_strategy.adaptation_enabled=False "
         f"acquisition_strategy.adaptation_enabled=False "
         f"model.num_inits=1 print_summary=True "
         f"seed={seed} "
@@ -244,9 +260,9 @@ def get_count_dict(t, num_nodes = 2810):
     return count_dict, count,ixs
 
 # AGGREGATE GEEM METRICS
-def combine_geem_metrics(dataset, prefix =None):
+def combine_geem_metrics(dataset, strategy = "geem",prefix =None):
     metrics = []
-    seed_path = os.path.join("..","output2/runs", dataset, "sgc", "geem")
+    seed_path = os.path.join("..","output2/runs", dataset, "sgc", strategy)
     filter_fn = lambda x: x.startswith(prefix) if prefix is not None else (len(x.split("_")) == 1)
     for seed in os.listdir(seed_path):
         if (seed != "None") and filter_fn(seed):
@@ -259,8 +275,8 @@ def combine_geem_metrics(dataset, prefix =None):
     aggregated_metrics = {k:np.array([m[k][0] for m in metrics]) if k != "acquired_idxs" else [m[k][0] for m in metrics]  for k in metrics[0].keys()}
     return aggregated_metrics
     
-def aggregate_geem_metrics(dataset, prefix = None):
-    metrics = combine_geem_metrics(dataset, prefix)
+def aggregate_geem_metrics(dataset, strategy = "geem",prefix = None):
+    metrics = combine_geem_metrics(dataset, strategy,prefix)
     metrics["accuracy/test"] *=100
     mean_metrics = {k:np.mean(v, axis=0) if k != "acquired_idxs" else v for k,v in metrics.items()}
     std_metrics = {k:np.std(v, axis=0) if k != "acquired_idxs" else v for k,v in metrics.items()}
@@ -288,7 +304,7 @@ def create_df(metrics_dict):
     stds = {k:v[1]for k,v in metrics_dict.items()}
     df_std = pd.DataFrame(stds).transpose()[index_list]
     df_combined = df_mean.join(df_std, lsuffix="_mean", rsuffix="_std").sort_index(axis=0)
-
+    df_combined["final_acc"] = df_combined[f"{index_list[-1]}_mean"]
     mean_cols = [str(i) + "_mean" for i in index_list]
     std_cols = [str(i) + "_std" for i in index_list]
 
@@ -341,3 +357,103 @@ def get_count_dict_binned_stats(t, num_nodes = 2810, num_acquired = 28):
     by_split =((reshaped_bin_count_split > 0).sum()).item()/(5*5*num_acquired)
     by_init = ((reshaped_bin_count_init > 0).sum()).item()/(5*5*num_acquired)
     return by_split, by_init
+
+
+import matplotlib.pyplot as plt
+def hist_plus_mean(tensor, num_bins=30):
+    hist_range = (np.min(tensor), np.max(tensor))
+    bin_edges = np.linspace(hist_range[0], hist_range[1], num_bins + 1)
+
+    # Compute histograms per row
+    hist_counts = np.zeros((28, num_bins))
+    for i in range(28):
+        hist_counts[i], _ = np.histogram(tensor[i], bins=bin_edges)
+
+    # Compute mean for each row
+    row_means = np.mean(tensor, axis=1)
+    return hist_counts, row_means, bin_edges
+def plot_hist_plus_means(tensor,title,num_bins=30):
+    hist_counts, row_means, bin_edges = hist_plus_mean(tensor, num_bins)
+
+    # Plot heatmap
+    plt.figure(figsize=(10, 6))
+    plt.imshow(hist_counts.T, aspect='auto', origin='lower',
+            extent=[0, 27, bin_edges[0], bin_edges[-1]],
+            cmap='coolwarm')
+
+    # Overlay mean line
+    x_vals = np.arange(28)
+    plt.plot(x_vals, row_means, color='red', linewidth=2)
+
+    # Labels and layout
+    plt.colorbar(label='Frequency')
+    plt.xlabel('Iteration')
+    plt.ylabel('Probability')
+    plt.title(f"{title} histogram and mean" )
+    plt.tight_layout()
+    plt.show()
+    
+
+
+def plot_hist_plus_means_multiple(hists,row_means,titles,bin_edgesS,vmin, vmax):
+    for hist_counts,row_mean,title,bin_edges in zip(hists,row_means,titles,bin_edgesS):
+        # Plot heatmap
+        plt.figure(figsize=(10, 6))
+        plt.imshow(hist_counts.T, aspect='auto', origin='lower',
+                extent=[0, 27, 0, 1],
+                cmap='coolwarm', vmin=vmin, vmax=vmax)
+
+        # Overlay mean line
+        x_vals = np.arange(28)
+        plt.plot(x_vals, row_mean, color='red', linewidth=2)
+
+        # Labels and layout
+        plt.colorbar(label='Frequency')
+        plt.xlabel('Iteration')
+        plt.ylabel('Probability')
+        plt.title(f"{title} histogram and mean" )
+        plt.tight_layout()
+        plt.show()
+
+
+
+
+
+
+def init_split_std(accuracy_array):
+    bins = np.array(np.array_split(accuracy_array, len(accuracy_array) // 5))
+
+    # Calculate the standard deviation for each bin
+    std_inside_split = np.std(bins, axis=1)
+    std_inside_init = np.std(bins, axis=0)
+    diff = std_inside_split - std_inside_init
+    mean_diff = np.mean(diff)
+    return (
+        mean_diff,
+        np.std(diff),
+        np.mean(std_inside_split),
+        np.mean(std_inside_init),
+        diff,
+    )
+
+def compute_stds(df,dataset, all_metrics):
+    df["std_diff"] = df.apply(
+    lambda x: init_split_std(
+        all_metrics[(dataset, x["model"])][x["index_original"]][3]["accuracy/test"]
+    )[0],
+    axis=1,
+    )
+    df["std_inside_split"] = df.apply(
+    lambda x: init_split_std(
+         all_metrics[(dataset, x["model"])][x["index_original"]][3]["accuracy/test"]
+    )[2],
+    axis=1,
+    )
+    
+    df["std_inside_init"] = df.apply(
+    lambda x: init_split_std(
+        all_metrics[(dataset, x["model"])][x["index_original"]][3]["accuracy/test"]
+    )[3],
+    axis=1,
+)
+    return df

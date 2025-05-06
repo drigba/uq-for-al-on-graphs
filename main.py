@@ -230,9 +230,11 @@ def main(config_dict: DictConfig) -> None:
     if config.print_summary:
         print_table(summary_metrics, title='Summary over all splits and initializations')
     save_results(results, outdir)
-    torch.save(acquisition_strategy.probs_list, "other_data/probs/probs_list_2.pt")
-    torch.save(acquisition_strategy.probs_o_list, "other_data/probs/probs_o_list_2.pt")
-    torch.save(acquisition_strategy.probs_filtered_list, "other_data/probs/probs_filtered_list_2.pt")
+    # torch.save(acquisition_strategy.probs_list, "other_data/probs/probs_list.pt")
+    # torch.save(acquisition_strategy.probs_o_list, "other_data/probs/probs_o_list.pt")
+    # torch.save(acquisition_strategy.probs_filtered_list, "other_data/probs/probs_filtered_list.pt")
+    # torch.save(acquisition_strategy.probs_unfiltered_list, "other_data/probs/probs_unfiltered_list.pt")
+
     
     if wandb.run is not None:  
         wandb.run.log({}) # Ensures a final commit to the wandb server
