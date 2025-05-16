@@ -12,17 +12,17 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
         if not os.path.exists(cache_path):
             raise ValueError(f"Cache path {cache_path} does not exist.")
         metrics_path = os.path.join(cache_path,f"{dataset}_{model}_metrics_dict.pt")
-        metrics_dict = torch.load(metrics_path)
+        metrics_dict = torch.load(metrics_path, weights_only=False)
         return metrics_dict
     
     prefix = f"../output2/runs/{dataset}/{model}/"
 
-
     strategies_paths = [os.path.join(prefix, strategy) for strategy in strategies_names if os.path.exists(os.path.join(prefix, strategy))]
+    strategies_names_filtered = [strategy for strategy in strategies_names if os.path.exists(os.path.join(prefix, strategy))]
     metrics_dict = {}
     print(f"Loading metrics {dataset} {model}")
     for ix,strategies_path in enumerate(strategies_paths):
-        print(f"\t{strategies_names[ix]} metrics")
+        print(f"\t{strategies_names_filtered[ix]} metrics")
         strategies = os.listdir(strategies_path)
         for strategy in strategies:
             path = os.path.join(strategies_path, strategy)
@@ -34,7 +34,7 @@ def load_results(dataset, model, strategies_names,save = False, cached = False, 
                     metrics = torch.load(metrics_path, weights_only=True)
                     accuracy = np.array(metrics["accuracy/test"])*100
                     accuracy_mean, accuracy_std = np.mean(accuracy, axis=0), np.std(accuracy, axis=0)
-                    metrics_dict[strategies_names[ix] + "_" + strategy] = (accuracy_mean,accuracy_std,accuracy,metrics)
+                    metrics_dict[strategies_names_filtered[ix] + "_" + strategy] = (accuracy_mean,accuracy_std,accuracy,metrics)
     if save and cache_path is not None:
         print("Saving metrics to cache")
         if not os.path.exists(cache_path):
